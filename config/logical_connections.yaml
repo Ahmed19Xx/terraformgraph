@@ -1,0 +1,183 @@
+# Logical connections between services for diagram rendering
+# Format: source -> target -> connection properties
+
+connections:
+  - source: cloudfront
+    target: s3
+    label: "Origin"
+    type: data_flow
+
+  - source: cloudfront
+    target: alb
+    label: "Origin"
+    type: data_flow
+
+  - source: waf
+    target: cloudfront
+    label: "Protect"
+    type: default
+
+  - source: waf
+    target: alb
+    label: "Protect"
+    type: default
+
+  - source: route53
+    target: cloudfront
+    label: "DNS"
+    type: default
+
+  - source: route53
+    target: alb
+    label: "DNS"
+    type: default
+
+  - source: acm
+    target: cloudfront
+    label: "TLS"
+    type: default
+
+  - source: acm
+    target: alb
+    label: "TLS"
+    type: default
+
+  - source: alb
+    target: ecs
+    label: "Route"
+    type: data_flow
+
+  - source: alb
+    target: ec2
+    label: "Route"
+    type: data_flow
+
+  - source: alb
+    target: lambda
+    label: "Route"
+    type: data_flow
+
+  - source: ecs
+    target: dynamodb
+    label: "Read/Write"
+    type: data_flow
+
+  - source: ecs
+    target: s3
+    label: "Read/Write"
+    type: data_flow
+
+  - source: ecs
+    target: rds
+    label: "Read/Write"
+    type: data_flow
+
+  - source: ecs
+    target: elasticache
+    label: "Cache"
+    type: data_flow
+
+  - source: ecs
+    target: sqs
+    label: "Queue"
+    type: trigger
+
+  - source: ecs
+    target: sns
+    label: "Publish"
+    type: trigger
+
+  - source: lambda
+    target: dynamodb
+    label: "Read/Write"
+    type: data_flow
+
+  - source: lambda
+    target: s3
+    label: "Read/Write"
+    type: data_flow
+
+  - source: lambda
+    target: sqs
+    label: "Process"
+    type: trigger
+
+  - source: sqs
+    target: lambda
+    label: "Trigger"
+    type: trigger
+
+  - source: sns
+    target: sqs
+    label: "Subscribe"
+    type: trigger
+
+  - source: sns
+    target: lambda
+    label: "Trigger"
+    type: trigger
+
+  - source: eventbridge
+    target: lambda
+    label: "Trigger"
+    type: trigger
+
+  - source: eventbridge
+    target: sqs
+    label: "Route"
+    type: trigger
+
+  - source: kms
+    target: s3
+    label: "Encrypt"
+    type: encrypt
+
+  - source: kms
+    target: dynamodb
+    label: "Encrypt"
+    type: encrypt
+
+  - source: kms
+    target: sqs
+    label: "Encrypt"
+    type: encrypt
+
+  - source: kms
+    target: sns
+    label: "Encrypt"
+    type: encrypt
+
+  - source: kms
+    target: secrets_manager
+    label: "Encrypt"
+    type: encrypt
+
+  - source: secrets_manager
+    target: ecs
+    label: "Inject"
+    type: default
+
+  - source: secrets_manager
+    target: lambda
+    label: "Inject"
+    type: default
+
+  - source: cognito
+    target: api_gateway
+    label: "Auth"
+    type: default
+
+  - source: cognito
+    target: alb
+    label: "Auth"
+    type: default
+
+  - source: api_gateway
+    target: lambda
+    label: "Invoke"
+    type: trigger
+
+  - source: step_functions
+    target: lambda
+    label: "Orchestrate"
+    type: trigger
