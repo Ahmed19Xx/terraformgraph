@@ -1,11 +1,11 @@
-# Contributing to Terraform Diagram Generator
+# Contributing to tfgraph
 
 Thank you for your interest in contributing! This document provides guidelines for contributing to the project.
 
 ## Getting Started
 
 1. Fork the repository
-2. Clone your fork: `git clone https://github.com/yourusername/terraform-diagram.git`
+2. Clone your fork: `git clone https://github.com/yourusername/tfgraph.git`
 3. Create a virtual environment: `python -m venv venv && source venv/bin/activate`
 4. Install dev dependencies: `pip install -e ".[dev]"`
 5. Create a branch: `git checkout -b feature/your-feature`

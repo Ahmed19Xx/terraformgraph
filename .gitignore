@@ -54,4 +54,4 @@ AWS_ICONS/
 Thumbs.db
 
 # Local config
-.terraform-diagram/
+.tfgraph/

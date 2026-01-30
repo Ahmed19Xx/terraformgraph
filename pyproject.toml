@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "terraform-diagram"
+name = "tfgraph"
 version = "1.0.0"
 description = "Generate interactive architecture diagrams from Terraform configurations"
 readme = "README.md"
@@ -18,7 +18,8 @@ keywords = [
     "diagram",
     "aws",
     "visualization",
-    "architecture"
+    "architecture",
+    "tfgraph"
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -49,13 +50,13 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/yourusername/terraform-diagram"
-Documentation = "https://github.com/yourusername/terraform-diagram#readme"
-Repository = "https://github.com/yourusername/terraform-diagram.git"
-Issues = "https://github.com/yourusername/terraform-diagram/issues"
+Homepage = "https://github.com/yourusername/tfgraph"
+Documentation = "https://github.com/yourusername/tfgraph#readme"
+Repository = "https://github.com/yourusername/tfgraph.git"
+Issues = "https://github.com/yourusername/tfgraph/issues"
 
 [project.scripts]
-terraform-diagram = "terraform_diagram.main:main"
+tfgraph = "terraform_diagram.main:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

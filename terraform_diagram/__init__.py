@@ -1,4 +1,4 @@
-"""Terraform Diagram Generator - Create architecture diagrams from Terraform."""
+"""tfgraph - Create architecture diagrams from Terraform configurations."""
 
 __version__ = "1.0.0"
 

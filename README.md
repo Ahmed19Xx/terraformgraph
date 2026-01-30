@@ -1,4 +1,4 @@
-# Terraform Diagram Generator
+# tfgraph
 
 Generate interactive architecture diagrams from your Terraform configurations. Supports AWS resources with automatic service grouping, relationship detection, and beautiful SVG/HTML output.
 
@@ -19,14 +19,14 @@ Generate interactive architecture diagrams from your Terraform configurations. S
 ### From PyPI
 
 ```bash
-pip install terraform-diagram
+pip install tfgraph
 ```
 
 ### From Source
 
 ```bash
-git clone https://github.com/yourusername/terraform-diagram.git
-cd terraform-diagram
+git clone https://github.com/yourusername/tfgraph.git
+cd tfgraph
 pip install -e .
 ```
 
@@ -37,7 +37,7 @@ pip install -e .
 Generate a diagram from a Terraform directory:
 
 ```bash
-terraform-diagram -t ./infrastructure -o diagram.html
+tfgraph -t ./infrastructure -o diagram.html
 ```
 
 ### With Environment Subdirectories
@@ -45,7 +45,7 @@ terraform-diagram -t ./infrastructure -o diagram.html
 If your Terraform is organized by environment:
 
 ```bash
-terraform-diagram -t ./infrastructure -e prod -o prod-diagram.html
+tfgraph -t ./infrastructure -e prod -o prod-diagram.html
 ```
 
 ### With AWS Icons
@@ -53,7 +53,7 @@ terraform-diagram -t ./infrastructure -e prod -o prod-diagram.html
 For beautiful AWS service icons, download the [AWS Architecture Icons](https://aws.amazon.com/architecture/icons/) and extract them:
 
 ```bash
-terraform-diagram -t ./infrastructure -i ./AWS_Icons -o diagram.html
+tfgraph -t ./infrastructure -i ./AWS_Icons -o diagram.html
 ```
 
 ## Command Line Options
@@ -70,7 +70,7 @@ terraform-diagram -t ./infrastructure -i ./AWS_Icons -o diagram.html
 
 ### Custom Aggregation Rules
 
-Create `~/.terraform-diagram/aggregation_rules.yaml` to customize how resources are grouped:
+Create `~/.tfgraph/aggregation_rules.yaml` to customize how resources are grouped:
 
 ```yaml
 compute:
@@ -82,7 +82,7 @@ compute:
 
 ### Custom Connections
 
-Create `~/.terraform-diagram/logical_connections.yaml` to define service relationships:
+Create `~/.tfgraph/logical_connections.yaml` to define service relationships:
 
 ```yaml
 connections:
