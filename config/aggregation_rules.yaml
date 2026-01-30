@@ -1,0 +1,132 @@
+# Aggregation rules for grouping Terraform resources into logical services
+# Format: service_name -> list of resource patterns
+
+compute:
+  ecs:
+    primary: ["aws_ecs_cluster", "aws_ecs_service", "aws_ecs_task_definition"]
+    secondary: ["aws_ecs_capacity_provider", "aws_appautoscaling_target", "aws_appautoscaling_policy"]
+    in_vpc: true
+
+  ec2:
+    primary: ["aws_instance", "aws_launch_template", "aws_autoscaling_group"]
+    secondary: ["aws_ami", "aws_ebs_volume"]
+    in_vpc: true
+
+networking:
+  alb:
+    primary: ["aws_lb", "aws_alb"]
+    secondary: ["aws_lb_listener", "aws_lb_target_group", "aws_alb_listener", "aws_alb_target_group"]
+    in_vpc: true
+
+  vpc:
+    primary: ["aws_vpc"]
+    secondary: ["aws_subnet", "aws_route_table", "aws_internet_gateway", "aws_nat_gateway", "aws_route_table_association", "aws_eip"]
+    in_vpc: true
+
+  security_groups:
+    primary: ["aws_security_group"]
+    secondary: ["aws_security_group_rule", "aws_vpc_security_group_ingress_rule", "aws_vpc_security_group_egress_rule"]
+    in_vpc: true
+
+storage:
+  s3:
+    primary: ["aws_s3_bucket"]
+    secondary: ["aws_s3_bucket_policy", "aws_s3_bucket_versioning", "aws_s3_bucket_lifecycle_configuration", "aws_s3_bucket_public_access_block", "aws_s3_bucket_server_side_encryption_configuration", "aws_s3_bucket_cors_configuration", "aws_s3_bucket_notification", "aws_s3_object"]
+    in_vpc: false
+
+database:
+  dynamodb:
+    primary: ["aws_dynamodb_table"]
+    secondary: ["aws_dynamodb_table_item", "aws_dynamodb_global_table"]
+    in_vpc: false
+
+  rds:
+    primary: ["aws_db_instance", "aws_rds_cluster"]
+    secondary: ["aws_db_subnet_group", "aws_db_parameter_group", "aws_rds_cluster_instance"]
+    in_vpc: true
+
+  elasticache:
+    primary: ["aws_elasticache_cluster", "aws_elasticache_replication_group"]
+    secondary: ["aws_elasticache_subnet_group", "aws_elasticache_parameter_group"]
+    in_vpc: true
+
+messaging:
+  sqs:
+    primary: ["aws_sqs_queue"]
+    secondary: ["aws_sqs_queue_policy"]
+    in_vpc: false
+
+  sns:
+    primary: ["aws_sns_topic"]
+    secondary: ["aws_sns_topic_subscription", "aws_sns_topic_policy"]
+    in_vpc: false
+
+  eventbridge:
+    primary: ["aws_cloudwatch_event_rule", "aws_cloudwatch_event_bus"]
+    secondary: ["aws_cloudwatch_event_target"]
+    in_vpc: false
+
+security:
+  kms:
+    primary: ["aws_kms_key"]
+    secondary: ["aws_kms_alias"]
+    in_vpc: false
+
+  secrets_manager:
+    primary: ["aws_secretsmanager_secret"]
+    secondary: ["aws_secretsmanager_secret_version"]
+    in_vpc: false
+
+  iam:
+    primary: ["aws_iam_role"]
+    secondary: ["aws_iam_policy", "aws_iam_role_policy", "aws_iam_role_policy_attachment", "aws_iam_policy_attachment", "aws_iam_instance_profile"]
+    in_vpc: false
+
+edge:
+  cloudfront:
+    primary: ["aws_cloudfront_distribution"]
+    secondary: ["aws_cloudfront_origin_access_identity", "aws_cloudfront_origin_access_control", "aws_cloudfront_cache_policy", "aws_cloudfront_response_headers_policy"]
+    in_vpc: false
+
+  waf:
+    primary: ["aws_wafv2_web_acl"]
+    secondary: ["aws_wafv2_web_acl_association", "aws_wafv2_ip_set", "aws_wafv2_rule_group"]
+    in_vpc: false
+
+  route53:
+    primary: ["aws_route53_zone"]
+    secondary: ["aws_route53_record"]
+    in_vpc: false
+
+  acm:
+    primary: ["aws_acm_certificate"]
+    secondary: ["aws_acm_certificate_validation"]
+    in_vpc: false
+
+auth:
+  cognito:
+    primary: ["aws_cognito_user_pool"]
+    secondary: ["aws_cognito_user_pool_client", "aws_cognito_identity_pool", "aws_cognito_user_pool_domain"]
+    in_vpc: false
+
+monitoring:
+  cloudwatch:
+    primary: ["aws_cloudwatch_log_group"]
+    secondary: ["aws_cloudwatch_log_stream", "aws_cloudwatch_metric_alarm", "aws_cloudwatch_dashboard"]
+    in_vpc: false
+
+serverless:
+  lambda:
+    primary: ["aws_lambda_function"]
+    secondary: ["aws_lambda_permission", "aws_lambda_event_source_mapping", "aws_lambda_layer_version"]
+    in_vpc: false
+
+  api_gateway:
+    primary: ["aws_api_gateway_rest_api", "aws_apigatewayv2_api"]
+    secondary: ["aws_api_gateway_resource", "aws_api_gateway_method", "aws_api_gateway_integration", "aws_api_gateway_deployment", "aws_api_gateway_stage", "aws_apigatewayv2_stage", "aws_apigatewayv2_route", "aws_apigatewayv2_integration"]
+    in_vpc: false
+
+  step_functions:
+    primary: ["aws_sfn_state_machine"]
+    secondary: []
+    in_vpc: false
