@@ -3,7 +3,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tfgraph.config_loader import ConfigLoader
+from terraformgraph.config_loader import ConfigLoader
 
 
 class TestConfigLoader:

@@ -1,6 +1,6 @@
-"""tfgraph - Create architecture diagrams from Terraform configurations."""
+"""terraformgraph - Create architecture diagrams from Terraform configurations."""
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 from .aggregator import ResourceAggregator
 from .config_loader import ConfigLoader

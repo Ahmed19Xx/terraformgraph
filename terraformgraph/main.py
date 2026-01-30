@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 """
-tfgraph - Terraform Diagram Generator
+terraformgraph - Terraform Diagram Generator
 
 Generates AWS infrastructure diagrams from Terraform code using official AWS icons.
 Creates high-level architectural diagrams with logical service groupings.
 
 Usage:
     # Parse a directory directly (auto-discovers icons in ./aws-official-icons)
-    tfgraph -t ./infrastructure -o diagram.html
+    terraformgraph -t ./infrastructure -o diagram.html
 
     # Parse a specific environment subdirectory
-    tfgraph -t ./infrastructure -e dev -o diagram.html
+    terraformgraph -t ./infrastructure -e dev -o diagram.html
 
     # With custom icons path
-    tfgraph -t ./infrastructure -i /path/to/icons -o diagram.html
+    terraformgraph -t ./infrastructure -i /path/to/icons -o diagram.html
 """
 
 import argparse
@@ -34,13 +34,13 @@ def main():
         epilog='''
 Examples:
     # Parse a directory (auto-discovers icons in ./aws-official-icons)
-    tfgraph -t ./infrastructure -o diagram.html
+    terraformgraph -t ./infrastructure -o diagram.html
 
     # Parse a specific environment subdirectory
-    tfgraph -t ./infrastructure -e dev -o diagram.html
+    terraformgraph -t ./infrastructure -e dev -o diagram.html
 
     # With custom icons path
-    tfgraph -t ./infrastructure -i /path/to/icons -o diagram.html
+    terraformgraph -t ./infrastructure -i /path/to/icons -o diagram.html
         '''
     )
 
@@ -58,7 +58,7 @@ Examples:
 
     parser.add_argument(
         '-i', '--icons',
-        help='Path to AWS icons directory (auto-discovers in ./aws-official-icons, ~/aws-official-icons, ~/.tfgraph/icons)',
+        help='Path to AWS icons directory (auto-discovers in ./aws-official-icons, ~/aws-official-icons, ~/.terraformgraph/icons)',
         default=None
     )
 
@@ -94,7 +94,7 @@ Examples:
             Path.cwd() / "AWS_Icons",
             Path(__file__).parent.parent / "aws-official-icons",
             Path.home() / "aws-official-icons",
-            Path.home() / ".tfgraph" / "icons",
+            Path.home() / ".terraformgraph" / "icons",
         ]
         for search_path in search_paths:
             if search_path.exists() and any(search_path.glob("Architecture-Service-Icons_*")):

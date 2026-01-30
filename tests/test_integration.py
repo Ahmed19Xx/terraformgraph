@@ -5,11 +5,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from tfgraph.aggregator import ResourceAggregator
-from tfgraph.icons import IconMapper
-from tfgraph.layout import LayoutEngine
-from tfgraph.parser import TerraformParser
-from tfgraph.renderer import HTMLRenderer, SVGRenderer
+from terraformgraph.aggregator import ResourceAggregator
+from terraformgraph.icons import IconMapper
+from terraformgraph.layout import LayoutEngine
+from terraformgraph.parser import TerraformParser
+from terraformgraph.renderer import HTMLRenderer, SVGRenderer
 
 
 class TestFullPipeline:

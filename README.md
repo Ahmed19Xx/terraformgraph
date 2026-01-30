@@ -1,4 +1,4 @@
-# tfgraph
+# terraformgraph
 
 Generate interactive architecture diagrams from your Terraform configurations. Supports AWS resources with automatic service grouping, relationship detection, and beautiful SVG/HTML output.
 
@@ -19,14 +19,14 @@ Generate interactive architecture diagrams from your Terraform configurations. S
 ### From PyPI
 
 ```bash
-pip install tfgraph
+pip install terraformgraph
 ```
 
 ### From Source
 
 ```bash
-git clone https://github.com/yourusername/tfgraph.git
-cd tfgraph
+git clone https://github.com/ferdinandobons/terraformgraph.git
+cd terraformgraph
 pip install -e .
 ```
 
@@ -37,7 +37,7 @@ pip install -e .
 Generate a diagram from a Terraform directory:
 
 ```bash
-tfgraph -t ./infrastructure -o diagram.html
+terraformgraph -t ./infrastructure -o diagram.html
 ```
 
 ### With Environment Subdirectories
@@ -45,7 +45,7 @@ tfgraph -t ./infrastructure -o diagram.html
 If your Terraform is organized by environment:
 
 ```bash
-tfgraph -t ./infrastructure -e prod -o prod-diagram.html
+terraformgraph -t ./infrastructure -e prod -o prod-diagram.html
 ```
 
 ### With AWS Icons
@@ -53,7 +53,7 @@ tfgraph -t ./infrastructure -e prod -o prod-diagram.html
 For beautiful AWS service icons, download the [AWS Architecture Icons](https://aws.amazon.com/architecture/icons/) and extract them:
 
 ```bash
-tfgraph -t ./infrastructure -i ./AWS_Icons -o diagram.html
+terraformgraph -t ./infrastructure -i ./AWS_Icons -o diagram.html
 ```
 
 ## Command Line Options
@@ -70,7 +70,7 @@ tfgraph -t ./infrastructure -i ./AWS_Icons -o diagram.html
 
 ### Custom Aggregation Rules
 
-Create `~/.tfgraph/aggregation_rules.yaml` to customize how resources are grouped:
+Create `~/.terraformgraph/aggregation_rules.yaml` to customize how resources are grouped:
 
 ```yaml
 compute:
@@ -82,7 +82,7 @@ compute:
 
 ### Custom Connections
 
-Create `~/.tfgraph/logical_connections.yaml` to define service relationships:
+Create `~/.terraformgraph/logical_connections.yaml` to define service relationships:
 
 ```yaml
 connections:
