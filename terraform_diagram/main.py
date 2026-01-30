@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 """
-Terraform Diagram Generator
+tfgraph - Terraform Diagram Generator
 
 Generates AWS infrastructure diagrams from Terraform code using official AWS icons.
 Creates high-level architectural diagrams with logical service groupings.
 
 Usage:
-    # Parse a directory directly
-    python -m terraform_diagram -t ./infrastructure -o diagram.html
+    # Parse a directory directly (auto-discovers icons in ./aws-official-icons)
+    tfgraph -t ./infrastructure -o diagram.html
 
     # Parse a specific environment subdirectory
-    python -m terraform_diagram -t ./infrastructure -e dev -o diagram.html
+    tfgraph -t ./infrastructure -e dev -o diagram.html
 
-    # With AWS icons for better visuals
-    python -m terraform_diagram -t ./infrastructure -i ./AWS_ICONS -o diagram.html
+    # With custom icons path
+    tfgraph -t ./infrastructure -i /path/to/icons -o diagram.html
 """
 
 import argparse
@@ -33,14 +33,14 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog='''
 Examples:
-    # Parse a directory directly
-    python -m terraform_diagram -t ./infrastructure -o diagram.html
+    # Parse a directory (auto-discovers icons in ./aws-official-icons)
+    tfgraph -t ./infrastructure -o diagram.html
 
     # Parse a specific environment subdirectory
-    python -m terraform_diagram -t ./infrastructure -e dev -o diagram.html
+    tfgraph -t ./infrastructure -e dev -o diagram.html
 
-    # With AWS icons
-    python -m terraform_diagram -t ./infrastructure -i ./AWS_ICONS -o diagram.html
+    # With custom icons path
+    tfgraph -t ./infrastructure -i /path/to/icons -o diagram.html
         '''
     )
 
@@ -58,7 +58,7 @@ Examples:
 
     parser.add_argument(
         '-i', '--icons',
-        help='Path to AWS icons directory (optional - falls back to colored boxes if not provided)',
+        help='Path to AWS icons directory (auto-discovers in ./aws-official-icons, ~/aws-official-icons, ~/.tfgraph/icons)',
         default=None
     )
 
@@ -82,10 +82,30 @@ Examples:
         print(f"Error: Terraform path not found: {terraform_path}", file=sys.stderr)
         sys.exit(1)
 
-    icons_path = Path(args.icons) if args.icons else None
+    # Auto-discover icons path
+    icons_path = None
+    if args.icons:
+        icons_path = Path(args.icons)
+    else:
+        # Try common locations for AWS icons
+        search_paths = [
+            Path.cwd() / "aws-official-icons",
+            Path.cwd() / "aws-icons",
+            Path.cwd() / "AWS_Icons",
+            Path(__file__).parent.parent / "aws-official-icons",
+            Path.home() / "aws-official-icons",
+            Path.home() / ".tfgraph" / "icons",
+        ]
+        for search_path in search_paths:
+            if search_path.exists() and any(search_path.glob("Architecture-Service-Icons_*")):
+                icons_path = search_path
+                break
+
     if icons_path and not icons_path.exists():
         print(f"Warning: Icons path not found: {icons_path}. Using fallback colors.", file=sys.stderr)
         icons_path = None
+    elif icons_path and args.verbose:
+        print(f"Using icons from: {icons_path}")
 
     # Determine parsing mode
     if args.environment:
