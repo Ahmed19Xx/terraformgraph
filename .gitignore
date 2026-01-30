@@ -48,6 +48,8 @@ htmlcov/
 # AWS Icons (user should download separately)
 AWS_Icons/
 AWS_ICONS/
+aws-official-icons/
+aws-icons/
 
 # OS files
 .DS_Store
