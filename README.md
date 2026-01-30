@@ -37,8 +37,10 @@ pip install -e .
 Generate a diagram from a Terraform directory:
 
 ```bash
-terraformgraph -t ./infrastructure -o diagram.html
+terraformgraph -t ./infrastructure
 ```
+
+This creates `diagram.html` in the current directory.
 
 ### With Environment Subdirectories
 
@@ -53,7 +55,7 @@ terraformgraph -t ./infrastructure -e prod -o prod-diagram.html
 For beautiful AWS service icons, download the [AWS Architecture Icons](https://aws.amazon.com/architecture/icons/) and extract them:
 
 ```bash
-terraformgraph -t ./infrastructure -i ./AWS_Icons -o diagram.html
+terraformgraph -t ./infrastructure -i ./AWS_Icons
 ```
 
 ## Command Line Options
@@ -63,7 +65,7 @@ terraformgraph -t ./infrastructure -i ./AWS_Icons -o diagram.html
 | `-t, --terraform` | Yes | Path to Terraform directory |
 | `-e, --environment` | No | Environment subdirectory (dev, staging, prod) |
 | `-i, --icons` | No | Path to AWS icons directory |
-| `-o, --output` | Yes | Output HTML file path |
+| `-o, --output` | No | Output HTML file path (default: `diagram.html`) |
 | `-v, --verbose` | No | Enable debug output |
 
 ## Configuration

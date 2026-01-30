@@ -6,14 +6,17 @@ Generates AWS infrastructure diagrams from Terraform code using official AWS ico
 Creates high-level architectural diagrams with logical service groupings.
 
 Usage:
-    # Parse a directory directly (auto-discovers icons in ./aws-official-icons)
-    terraformgraph -t ./infrastructure -o diagram.html
+    # Parse a directory directly (generates diagram.html by default)
+    terraformgraph -t ./infrastructure
 
     # Parse a specific environment subdirectory
-    terraformgraph -t ./infrastructure -e dev -o diagram.html
+    terraformgraph -t ./infrastructure -e dev
+
+    # With custom output path
+    terraformgraph -t ./infrastructure -o my-diagram.html
 
     # With custom icons path
-    terraformgraph -t ./infrastructure -i /path/to/icons -o diagram.html
+    terraformgraph -t ./infrastructure -i /path/to/icons
 """
 
 import argparse
@@ -33,14 +36,17 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog='''
 Examples:
-    # Parse a directory (auto-discovers icons in ./aws-official-icons)
-    terraformgraph -t ./infrastructure -o diagram.html
+    # Parse a directory (generates diagram.html by default)
+    terraformgraph -t ./infrastructure
 
     # Parse a specific environment subdirectory
-    terraformgraph -t ./infrastructure -e dev -o diagram.html
+    terraformgraph -t ./infrastructure -e dev
+
+    # With custom output path
+    terraformgraph -t ./infrastructure -o my-diagram.html
 
     # With custom icons path
-    terraformgraph -t ./infrastructure -i /path/to/icons -o diagram.html
+    terraformgraph -t ./infrastructure -i /path/to/icons
         '''
     )
 
@@ -64,8 +70,8 @@ Examples:
 
     parser.add_argument(
         '-o', '--output',
-        required=True,
-        help='Output file path (HTML)'
+        default='diagram.html',
+        help='Output file path (HTML). Default: diagram.html'
     )
 
     parser.add_argument(
