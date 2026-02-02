@@ -117,63 +117,67 @@ class LayoutEngine:
 
         y_offset += self.config.row_spacing + 20
 
-        # Row 2: VPC box with internal services
-        vpc_x = self.config.padding + 50
-        vpc_width = self.config.canvas_width - 2 * (self.config.padding + 50)
-
+        # Row 2: VPC box with internal services (only if VPC resources exist)
         # Filter out 'vpc' itself from vpc_services for positioning
         vpc_internal = [s for s in vpc_services if s.service_type != 'vpc']
 
-        # Separate services: those with subnet_ids go inside subnets, others in top row
-        services_with_subnets = [s for s in vpc_internal if s.subnet_ids]
-        services_without_subnets = [s for s in vpc_internal if not s.subnet_ids]
+        # Only create VPC box if there are VPC services OR vpc_structure exists
+        has_vpc_content = len(vpc_internal) > 0 or aggregated.vpc_structure is not None
 
-        # Use dynamic VPC height if vpc_structure exists
-        if aggregated.vpc_structure:
-            vpc_height = self._compute_vpc_height(
-                aggregated.vpc_structure,
-                has_vpc_services=len(services_without_subnets) > 0,
-                has_services_in_subnets=len(services_with_subnets) > 0,
-            )
-        else:
-            vpc_height = 180
+        if has_vpc_content:
+            vpc_x = self.config.padding + 50
+            vpc_width = self.config.canvas_width - 2 * (self.config.padding + 50)
 
-        vpc_pos = Position(x=vpc_x, y=y_offset, width=vpc_width, height=vpc_height)
-        vpc_group = ServiceGroup(
-            group_type='vpc',
-            name='VPC',
-            services=vpc_internal,
-            position=vpc_pos
-        )
-        groups.append(vpc_group)
+            # Separate services: those with subnet_ids go inside subnets, others in top row
+            services_with_subnets = [s for s in vpc_internal if s.subnet_ids]
+            services_without_subnets = [s for s in vpc_internal if not s.subnet_ids]
 
-        # Position services WITHOUT subnet_ids at the TOP, above AZs
-        services_row_y = y_offset + self.config.group_padding + 30
-        if services_without_subnets:
-            x = self._center_row_start(len(services_without_subnets), vpc_x + self.config.group_padding,
-                                        vpc_x + vpc_width - self.config.group_padding)
-            for service in services_without_subnets:
-                positions[service.id] = Position(
-                    x=x, y=services_row_y,
-                    width=self.config.icon_size,
-                    height=self.config.icon_size
+            # Use dynamic VPC height if vpc_structure exists
+            if aggregated.vpc_structure:
+                vpc_height = self._compute_vpc_height(
+                    aggregated.vpc_structure,
+                    has_vpc_services=len(services_without_subnets) > 0,
+                    has_services_in_subnets=len(services_with_subnets) > 0,
                 )
-                x += self.config.column_spacing
+            else:
+                vpc_height = 180
 
-        # Layout VPC structure (AZs and endpoints) BELOW services
-        if aggregated.vpc_structure:
-            # AZs start below the services row
-            az_start_y = services_row_y + self.config.icon_size + 50 if services_without_subnets else services_row_y
-            self._layout_vpc_structure(
-                aggregated.vpc_structure,
-                vpc_pos,
-                positions,
-                groups,
-                az_start_y=az_start_y,
-                services_with_subnets=services_with_subnets,
+            vpc_pos = Position(x=vpc_x, y=y_offset, width=vpc_width, height=vpc_height)
+            vpc_group = ServiceGroup(
+                group_type='vpc',
+                name='VPC',
+                services=vpc_internal,
+                position=vpc_pos
             )
+            groups.append(vpc_group)
 
-        y_offset += vpc_height + 40
+            # Position services WITHOUT subnet_ids at the TOP, above AZs
+            services_row_y = y_offset + self.config.group_padding + 30
+            if services_without_subnets:
+                x = self._center_row_start(len(services_without_subnets), vpc_x + self.config.group_padding,
+                                            vpc_x + vpc_width - self.config.group_padding)
+                for service in services_without_subnets:
+                    positions[service.id] = Position(
+                        x=x, y=services_row_y,
+                        width=self.config.icon_size,
+                        height=self.config.icon_size
+                    )
+                    x += self.config.column_spacing
+
+            # Layout VPC structure (AZs and endpoints) BELOW services
+            if aggregated.vpc_structure:
+                # AZs start below the services row
+                az_start_y = services_row_y + self.config.icon_size + 50 if services_without_subnets else services_row_y
+                self._layout_vpc_structure(
+                    aggregated.vpc_structure,
+                    vpc_pos,
+                    positions,
+                    groups,
+                    az_start_y=az_start_y,
+                    services_with_subnets=services_with_subnets,
+                )
+
+            y_offset += vpc_height + 40
 
         # Row 3: Data services
         if data_services:
