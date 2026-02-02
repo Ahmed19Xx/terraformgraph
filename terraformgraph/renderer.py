@@ -59,6 +59,14 @@ class SVGRenderer:
         for group in groups:
             svg_parts.append(self._render_group(group))
 
+        # Build mapping from AWS subnet IDs to resource IDs for state-based lookups
+        aws_id_to_resource_id: Dict[str, str] = {}
+        if vpc_structure:
+            for az in vpc_structure.availability_zones:
+                for subnet in az.subnets:
+                    if subnet.aws_id:
+                        aws_id_to_resource_id[subnet.aws_id] = subnet.resource_id
+
         # Render subnets layer (below connections)
         if vpc_structure:
             svg_parts.append('<g id="subnets-layer">')
@@ -99,7 +107,7 @@ class SVGRenderer:
         svg_parts.append('<g id="services-layer">')
         for service in services:
             if service.id in positions:
-                svg_parts.append(self._render_service(service, positions[service.id]))
+                svg_parts.append(self._render_service(service, positions[service.id], aws_id_to_resource_id))
         svg_parts.append('</g>')
 
         svg_parts.append('</svg>')
@@ -308,7 +316,12 @@ class SVGRenderer:
             </g>
             '''
 
-    def _render_service(self, service: LogicalService, pos: Position) -> str:
+    def _render_service(
+        self,
+        service: LogicalService,
+        pos: Position,
+        aws_id_to_resource_id: Optional[Dict[str, str]] = None
+    ) -> str:
         """Render a draggable logical service with its icon."""
         icon_svg = self.icon_mapper.get_icon_svg(service.icon_resource_type, 48)
         color = self.icon_mapper.get_category_color(service.icon_resource_type)
@@ -333,10 +346,19 @@ class SVGRenderer:
         # Get subnet constraint if service has subnet_ids (use first subnet for constraint)
         subnet_attr = ''
         if service.subnet_ids:
-            # Filter to only aws_subnet references (not _state_subnet: prefixed)
+            # First, try direct aws_subnet references
             aws_subnets = [s for s in service.subnet_ids if s.startswith('aws_subnet.')]
             if aws_subnets:
                 subnet_attr = f'data-subnet-id="{html.escape(aws_subnets[0])}"'
+            elif aws_id_to_resource_id:
+                # If no direct references, try to map _state_subnet: IDs to resource IDs
+                for subnet_id in service.subnet_ids:
+                    if subnet_id.startswith("_state_subnet:"):
+                        aws_id = subnet_id[len("_state_subnet:"):]
+                        if aws_id in aws_id_to_resource_id:
+                            resource_id = aws_id_to_resource_id[aws_id]
+                            subnet_attr = f'data-subnet-id="{html.escape(resource_id)}"'
+                            break
 
         if icon_svg:
             icon_content = self._extract_svg_content(icon_svg)
