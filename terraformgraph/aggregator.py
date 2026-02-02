@@ -489,6 +489,31 @@ class VPCStructureBuilder:
 
         # Service name format: com.amazonaws.<region>.<service>
         # Example: com.amazonaws.us-east-1.s3
+        # But if region is a variable like ${var.aws_region}, we get:
+        # com.amazonaws.${var.aws_region}.s3
+
+        # Strategy: take the last part(s) after the last known prefix
+        # Remove any variable interpolation patterns
+        clean_name = service_name
+
+        # If there's a variable pattern, extract service from the end
+        if "${" in service_name:
+            # Find the service after the variable - typically the last segment
+            # e.g., "com.amazonaws.${var.aws_region}.s3" -> "s3"
+            parts = service_name.split(".")
+            # Get parts after any that contain "${"
+            service_parts = []
+            found_var = False
+            for part in parts:
+                if "${" in part or "}" in part:
+                    found_var = True
+                    service_parts = []  # Reset, service comes after
+                elif found_var:
+                    service_parts.append(part)
+            if service_parts:
+                return ".".join(service_parts)
+
+        # Standard parsing: com.amazonaws.<region>.<service>
         parts = service_name.split(".")
         if len(parts) >= 4:
             # Join everything after the region (handles services like ecr.api)
