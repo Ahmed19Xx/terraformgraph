@@ -9,11 +9,14 @@ Generates interactive HTML diagrams with:
 
 import html
 import re
-from typing import Dict, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional
 
 from .aggregator import AggregatedResult, LogicalConnection, LogicalService
 from .icons import IconMapper
 from .layout import LayoutConfig, Position, ServiceGroup
+
+if TYPE_CHECKING:
+    from .aggregator import Subnet, VPCEndpoint, VPCStructure
 
 
 class SVGRenderer:
@@ -28,7 +31,8 @@ class SVGRenderer:
         services: List[LogicalService],
         positions: Dict[str, Position],
         connections: List[LogicalConnection],
-        groups: List[ServiceGroup]
+        groups: List[ServiceGroup],
+        vpc_structure: Optional["VPCStructure"] = None
     ) -> str:
         """Generate SVG content for the diagram."""
         svg_parts = []
@@ -45,9 +49,22 @@ class SVGRenderer:
         # Background
         svg_parts.append('''<rect width="100%" height="100%" fill="#f8f9fa"/>''')
 
-        # Render groups (AWS Cloud, VPC)
+        # Render groups (AWS Cloud, VPC, AZ)
         for group in groups:
             svg_parts.append(self._render_group(group))
+
+        # Render subnets layer (below connections)
+        if vpc_structure:
+            svg_parts.append('<g id="subnets-layer">')
+            for az in vpc_structure.availability_zones:
+                for subnet in az.subnets:
+                    if subnet.resource_id in positions:
+                        svg_parts.append(self._render_subnet(
+                            subnet.resource_id,
+                            positions[subnet.resource_id],
+                            subnet
+                        ))
+            svg_parts.append('</g>')
 
         # Connections container (will be updated dynamically)
         svg_parts.append('<g id="connections-layer">')
@@ -59,6 +76,18 @@ class SVGRenderer:
                     conn
                 ))
         svg_parts.append('</g>')
+
+        # Render VPC endpoints layer
+        if vpc_structure:
+            svg_parts.append('<g id="endpoints-layer">')
+            for endpoint in vpc_structure.endpoints:
+                if endpoint.resource_id in positions:
+                    svg_parts.append(self._render_vpc_endpoint(
+                        endpoint.resource_id,
+                        positions[endpoint.resource_id],
+                        endpoint
+                    ))
+            svg_parts.append('</g>')
 
         # Services layer
         svg_parts.append('<g id="services-layer">')
@@ -94,11 +123,15 @@ class SVGRenderer:
         '''
 
     def _render_group(self, group: ServiceGroup) -> str:
-        """Render a group container (AWS Cloud, VPC)."""
+        """Render a group container (AWS Cloud, VPC, AZ)."""
         if not group.position:
             return ''
 
         pos = group.position
+
+        # Handle AZ groups with special rendering
+        if group.group_type == 'az':
+            return self._render_az(group)
 
         colors = {
             'aws_cloud': ('#232f3e', '#ffffff', '#232f3e'),
@@ -117,6 +150,101 @@ class SVGRenderer:
             <text x="{pos.x + 15}" y="{pos.y + 22}"
                 font-family="Arial, sans-serif" font-size="14" font-weight="bold"
                 fill="{text_color}">{html.escape(group.name)}</text>
+        </g>
+        '''
+
+    def _render_az(self, group: ServiceGroup) -> str:
+        """Render an Availability Zone container with dashed border."""
+        if not group.position:
+            return ''
+
+        pos = group.position
+        border_color = '#ff9900'  # AWS orange for AZ
+        bg_color = '#fff8f0'  # Light orange background
+        text_color = '#ff9900'
+
+        return f'''
+        <g class="group group-az" data-group-type="az">
+            <rect class="az-bg" x="{pos.x}" y="{pos.y}" width="{pos.width}" height="{pos.height}"
+                fill="{bg_color}" stroke="{border_color}" stroke-width="1.5"
+                stroke-dasharray="5,3" rx="8" ry="8"/>
+            <text x="{pos.x + 10}" y="{pos.y + 18}"
+                font-family="Arial, sans-serif" font-size="12" font-weight="bold"
+                fill="{text_color}">{html.escape(group.name)}</text>
+        </g>
+        '''
+
+    def _render_subnet(
+        self,
+        subnet_id: str,
+        pos: Position,
+        subnet_info: "Subnet"
+    ) -> str:
+        """Render a colored subnet box.
+
+        Colors:
+        - public: green
+        - private: blue
+        - database: yellow/gold
+        - unknown: gray
+        """
+        colors = {
+            'public': ('#22a06b', '#e3fcef'),  # Green
+            'private': ('#0052cc', '#deebff'),  # Blue
+            'database': ('#ff991f', '#fffae6'),  # Yellow/Gold
+            'unknown': ('#6b778c', '#f4f5f7'),  # Gray
+        }
+
+        border_color, bg_color = colors.get(subnet_info.subnet_type, colors['unknown'])
+
+        return f'''
+        <g class="subnet subnet-{subnet_info.subnet_type}" data-subnet-id="{html.escape(subnet_id)}">
+            <rect x="{pos.x}" y="{pos.y}" width="{pos.width}" height="{pos.height}"
+                fill="{bg_color}" stroke="{border_color}" stroke-width="1.5" rx="4" ry="4"/>
+            <text x="{pos.x + 8}" y="{pos.y + pos.height/2 + 4}"
+                font-family="Arial, sans-serif" font-size="11" fill="{border_color}">
+                {html.escape(subnet_info.name)}
+            </text>
+            <text x="{pos.x + pos.width - 8}" y="{pos.y + pos.height/2 + 4}"
+                font-family="Arial, sans-serif" font-size="10" fill="{border_color}"
+                text-anchor="end" opacity="0.7">
+                {subnet_info.subnet_type}
+            </text>
+        </g>
+        '''
+
+    def _render_vpc_endpoint(
+        self,
+        endpoint_id: str,
+        pos: Position,
+        endpoint_info: "VPCEndpoint"
+    ) -> str:
+        """Render a VPC endpoint circle on the VPC border.
+
+        Colors:
+        - gateway: purple
+        - interface: blue
+        """
+        colors = {
+            'gateway': '#9c27b0',  # Purple
+            'interface': '#2196f3',  # Blue
+        }
+
+        color = colors.get(endpoint_info.endpoint_type, colors['interface'])
+        cx = pos.x + pos.width / 2
+        cy = pos.y + pos.height / 2
+        radius = min(pos.width, pos.height) / 2
+
+        return f'''
+        <g class="vpc-endpoint endpoint-{endpoint_info.endpoint_type}" data-endpoint-id="{html.escape(endpoint_id)}">
+            <circle cx="{cx}" cy="{cy}" r="{radius}"
+                fill="{color}" stroke="white" stroke-width="2"/>
+            <text x="{cx}" y="{cy + 4}"
+                font-family="Arial, sans-serif" font-size="9" fill="white"
+                text-anchor="middle" font-weight="bold">
+                {html.escape(endpoint_info.service[:3].upper())}
+            </text>
+            <title>{html.escape(endpoint_info.name)} ({endpoint_info.endpoint_type})</title>
         </g>
         '''
 
@@ -469,6 +597,17 @@ class HTMLRenderer:
             height: 3px;
             border-radius: 2px;
         }}
+        .legend-box {{
+            width: 24px;
+            height: 16px;
+            border-radius: 3px;
+            border: 1.5px solid;
+        }}
+        .legend-circle {{
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+        }}
         .tooltip {{
             position: fixed;
             padding: 10px 14px;
@@ -605,6 +744,36 @@ class HTMLRenderer:
                         <div class="legend-item">
                             <div class="legend-line" style="background: #999;"></div>
                             <span>Reference</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="legend-section">
+                    <h4>Subnet Types</h4>
+                    <div class="legend-items">
+                        <div class="legend-item">
+                            <div class="legend-box" style="background: #e3fcef; border-color: #22a06b;"></div>
+                            <span>Public Subnet</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-box" style="background: #deebff; border-color: #0052cc;"></div>
+                            <span>Private Subnet</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-box" style="background: #fffae6; border-color: #ff991f;"></div>
+                            <span>Database Subnet</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="legend-section">
+                    <h4>VPC Endpoints</h4>
+                    <div class="legend-items">
+                        <div class="legend-item">
+                            <div class="legend-circle" style="background: #9c27b0;"></div>
+                            <span>Gateway Endpoint</span>
+                        </div>
+                        <div class="legend-item">
+                            <div class="legend-circle" style="background: #2196f3;"></div>
+                            <span>Interface Endpoint</span>
                         </div>
                     </div>
                 </div>
@@ -1137,7 +1306,8 @@ class HTMLRenderer:
             aggregated.services,
             positions,
             aggregated.connections,
-            groups
+            groups,
+            vpc_structure=aggregated.vpc_structure
         )
 
         total_resources = sum(len(s.resources) for s in aggregated.services)

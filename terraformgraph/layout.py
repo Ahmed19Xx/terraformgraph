@@ -5,9 +5,12 @@ Computes positions for logical services in the diagram.
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 from .aggregator import AggregatedResult, LogicalService
+
+if TYPE_CHECKING:
+    from .aggregator import AvailabilityZone, VPCStructure
 
 
 @dataclass
@@ -117,16 +120,22 @@ class LayoutEngine:
         # Row 2: VPC box with internal services
         vpc_x = self.config.padding + 50
         vpc_width = self.config.canvas_width - 2 * (self.config.padding + 50)
-        vpc_height = 180
+
+        # Use dynamic VPC height if vpc_structure exists
+        if aggregated.vpc_structure:
+            vpc_height = self._compute_vpc_height(aggregated.vpc_structure)
+        else:
+            vpc_height = 180
 
         # Filter out 'vpc' itself from vpc_services for positioning
         vpc_internal = [s for s in vpc_services if s.service_type != 'vpc']
 
+        vpc_pos = Position(x=vpc_x, y=y_offset, width=vpc_width, height=vpc_height)
         vpc_group = ServiceGroup(
             group_type='vpc',
             name='VPC',
             services=vpc_internal,
-            position=Position(x=vpc_x, y=y_offset, width=vpc_width, height=vpc_height)
+            position=vpc_pos
         )
         groups.append(vpc_group)
 
@@ -142,6 +151,15 @@ class LayoutEngine:
                     height=self.config.icon_size
                 )
                 x += self.config.column_spacing
+
+        # Layout VPC structure (AZs and endpoints) if available
+        if aggregated.vpc_structure:
+            self._layout_vpc_structure(
+                aggregated.vpc_structure,
+                vpc_pos,
+                positions,
+                groups
+            )
 
         y_offset += vpc_height + 40
 
@@ -200,6 +218,139 @@ class LayoutEngine:
         available_width = max_x - min_x
         total_items_width = num_items * self.config.icon_size + (num_items - 1) * self.config.icon_spacing
         return min_x + (available_width - total_items_width) / 2
+
+    def _compute_vpc_height(self, vpc_structure: "VPCStructure") -> int:
+        """Compute VPC box height based on subnet count.
+
+        Args:
+            vpc_structure: VPCStructure with availability zones and subnets
+
+        Returns:
+            Height in pixels for the VPC box
+        """
+        if not vpc_structure or not vpc_structure.availability_zones:
+            return 180  # Default height
+
+        # Find max subnets in any AZ
+        max_subnets = 0
+        for az in vpc_structure.availability_zones:
+            max_subnets = max(max_subnets, len(az.subnets))
+
+        # Calculate height: base height + per-subnet height
+        subnet_height = 50  # Height per subnet row
+        az_header_height = 30  # Height for AZ header
+        vpc_header_height = 40  # Height for VPC header
+        base_padding = 40  # Top and bottom padding
+
+        # Height = VPC header + AZ headers + subnet rows + padding
+        calculated_height = (
+            vpc_header_height +
+            az_header_height +
+            (max_subnets * subnet_height) +
+            base_padding
+        )
+
+        return max(180, calculated_height)
+
+    def _layout_vpc_structure(
+        self,
+        vpc_structure: "VPCStructure",
+        vpc_pos: Position,
+        positions: Dict[str, Position],
+        groups: List[ServiceGroup]
+    ) -> None:
+        """Layout availability zones and endpoints within VPC.
+
+        Args:
+            vpc_structure: VPCStructure with AZs and endpoints
+            vpc_pos: Position of the VPC container
+            positions: Dict to add subnet positions to
+            groups: List to add AZ groups to
+        """
+        if not vpc_structure:
+            return
+
+        num_azs = len(vpc_structure.availability_zones)
+        if num_azs == 0:
+            return
+
+        # Calculate AZ dimensions
+        az_padding = 15
+        endpoint_width = 80  # Space reserved for endpoints on right
+        available_width = vpc_pos.width - (2 * az_padding) - endpoint_width
+        az_width = (available_width - (num_azs - 1) * az_padding) / num_azs
+        az_height = vpc_pos.height - 60  # Leave room for VPC header
+
+        # Layout each AZ
+        az_y = vpc_pos.y + 40  # Below VPC header
+        az_x = vpc_pos.x + az_padding
+
+        for az in vpc_structure.availability_zones:
+            az_pos = Position(
+                x=az_x,
+                y=az_y,
+                width=az_width,
+                height=az_height
+            )
+
+            # Create AZ group
+            az_group = ServiceGroup(
+                group_type='az',
+                name=f"AZ {az.short_name}",
+                position=az_pos
+            )
+            groups.append(az_group)
+
+            # Layout subnets inside this AZ
+            self._layout_subnets(az, az_pos, positions)
+
+            az_x += az_width + az_padding
+
+        # Layout VPC endpoints on the right border
+        if vpc_structure.endpoints:
+            endpoint_x = vpc_pos.x + vpc_pos.width - 40  # Near right edge
+            endpoint_y = vpc_pos.y + 60  # Below VPC header
+            endpoint_spacing = 50
+
+            for endpoint in vpc_structure.endpoints:
+                positions[endpoint.resource_id] = Position(
+                    x=endpoint_x,
+                    y=endpoint_y,
+                    width=30,
+                    height=30
+                )
+                endpoint_y += endpoint_spacing
+
+    def _layout_subnets(
+        self,
+        az: "AvailabilityZone",
+        az_pos: Position,
+        positions: Dict[str, Position]
+    ) -> None:
+        """Layout subnets inside an availability zone.
+
+        Args:
+            az: AvailabilityZone containing subnets
+            az_pos: Position of the AZ container
+            positions: Dict to add subnet positions to
+        """
+        if not az.subnets:
+            return
+
+        subnet_padding = 10
+        subnet_height = 40
+        subnet_width = az_pos.width - (2 * subnet_padding)
+
+        subnet_y = az_pos.y + 30  # Below AZ header
+
+        for subnet in az.subnets:
+            positions[subnet.resource_id] = Position(
+                x=az_pos.x + subnet_padding,
+                y=subnet_y,
+                width=subnet_width,
+                height=subnet_height
+            )
+            subnet_y += subnet_height + subnet_padding
 
     def compute_connection_path(
         self,
