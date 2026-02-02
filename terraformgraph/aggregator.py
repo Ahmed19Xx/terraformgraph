@@ -14,6 +14,7 @@ from .config_loader import ConfigLoader
 from .parser import ParseResult, TerraformResource
 
 if TYPE_CHECKING:
+    from .terraform_tools import TerraformStateResult
     from .variable_resolver import VariableResolver
 
 
@@ -133,6 +134,7 @@ class ResourceAggregator:
         self,
         parse_result: ParseResult,
         terraform_dir: Optional[Union[str, Path]] = None,
+        state_result: Optional["TerraformStateResult"] = None,
     ) -> AggregatedResult:
         """Aggregate parsed resources into logical services.
 
@@ -241,7 +243,9 @@ class ResourceAggregator:
         if resolver is not None:
             vpc_builder = VPCStructureBuilder()
             result.vpc_structure = vpc_builder.build(
-                parse_result.resources, resolver=resolver
+                parse_result.resources,
+                resolver=resolver,
+                state_result=state_result,
             )
 
         return result
@@ -453,18 +457,28 @@ class VPCStructureBuilder:
         self,
         resources: List[TerraformResource],
         resolver: Optional["VariableResolver"] = None,
+        state_result: Optional["TerraformStateResult"] = None,
     ) -> Optional[VPCStructure]:
         """Build VPCStructure from a list of Terraform resources.
 
         Args:
             resources: List of TerraformResource objects
             resolver: Optional VariableResolver for resolving interpolations
+            state_result: Optional TerraformStateResult with actual state values
 
         Returns:
             VPCStructure or None if no VPC found
         """
         if not resources:
             return None
+
+        # Build state lookup index if state is available
+        state_index: Dict[str, Dict[str, Any]] = {}
+        if state_result:
+            from .terraform_tools import map_state_to_resource_id
+            for state_res in state_result.resources:
+                resource_id = map_state_to_resource_id(state_res.address)
+                state_index[resource_id] = state_res.values
 
         # Find VPC resource
         vpc_resource = None
@@ -497,8 +511,16 @@ class VPCStructureBuilder:
 
             subnet_type = self._detect_subnet_type(r)
 
-            # Try to get explicit AZ from attributes (e.g., "us-east-1a")
-            explicit_az = self._detect_availability_zone(r)
+            # Try to get explicit AZ - prefer state data if available
+            explicit_az = None
+            if r.full_id in state_index:
+                state_az = state_index[r.full_id].get("availability_zone")
+                if state_az and isinstance(state_az, str):
+                    explicit_az = state_az
+
+            # Fallback to HCL-based detection
+            if not explicit_az:
+                explicit_az = self._detect_availability_zone(r)
 
             # Try to extract suffix from resource name (e.g., "-a", "-1")
             suffix = self._extract_az_suffix(r.resource_name)

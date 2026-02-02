@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 import hcl2
 
 if TYPE_CHECKING:
+    from terraformgraph.terraform_tools import TerraformGraphResult, TerraformStateResult
     from terraformgraph.variable_resolver import VariableResolver
 
 logger = logging.getLogger(__name__)
@@ -120,10 +121,20 @@ class TerraformParser:
         'alarm_topic_arn': ('alerts_to', 'aws_sns_topic'),
     }
 
-    def __init__(self, infrastructure_path: str, icons_path: Optional[str] = None):
+    def __init__(
+        self,
+        infrastructure_path: str,
+        icons_path: Optional[str] = None,
+        use_terraform_graph: bool = False,
+        use_terraform_state: bool = False
+    ):
         self.infrastructure_path = Path(infrastructure_path)
         self.icons_path = Path(icons_path) if icons_path else None
         self._parsed_modules: Dict[str, ParseResult] = {}
+        self.use_terraform_graph = use_terraform_graph
+        self.use_terraform_state = use_terraform_state
+        self._graph_result: Optional["TerraformGraphResult"] = None
+        self._state_result: Optional["TerraformStateResult"] = None
 
     def parse_environment(self, environment: str) -> ParseResult:
         """Parse all Terraform files for a specific environment."""
@@ -168,7 +179,99 @@ class TerraformParser:
         # Extract relationships from all resources
         self._extract_relationships(result)
 
+        # Enhance with terraform tools if requested
+        if self.use_terraform_graph or self.use_terraform_state:
+            self._enhance_with_terraform_tools(result, directory)
+
         return result
+
+    def _enhance_with_terraform_tools(self, result: ParseResult, directory: Path) -> None:
+        """Enhance parse result with data from terraform CLI tools."""
+        from terraformgraph.terraform_tools import TerraformToolsRunner, map_state_to_resource_id
+
+        runner = TerraformToolsRunner(directory)
+
+        if self.use_terraform_graph:
+            graph_result = runner.run_graph()
+            if graph_result:
+                self._graph_result = graph_result
+                self._merge_graph_relationships(result, graph_result)
+                logger.info(
+                    "Enhanced with terraform graph: %d edges",
+                    len(graph_result.edges)
+                )
+
+        if self.use_terraform_state:
+            state_result = runner.run_show_json()
+            if state_result:
+                self._state_result = state_result
+                self._enrich_resources_with_state(result, state_result)
+                logger.info(
+                    "Enhanced with terraform state: %d resources",
+                    len(state_result.resources)
+                )
+
+    def _merge_graph_relationships(
+        self,
+        result: ParseResult,
+        graph_result: "TerraformGraphResult"
+    ) -> None:
+        """Merge relationships from terraform graph into parse result."""
+        from terraformgraph.terraform_tools import map_state_to_resource_id
+
+        # Build index of existing resources by full_id
+        resource_index = {r.full_id: r for r in result.resources}
+
+        # Track existing relationships to avoid duplicates
+        existing_rels = {
+            (r.source_id, r.target_id) for r in result.relationships
+        }
+
+        for source, target in graph_result.edges:
+            source_id = map_state_to_resource_id(source)
+            target_id = map_state_to_resource_id(target)
+
+            # Only add if both resources exist and relationship is new
+            if (source_id in resource_index and
+                target_id in resource_index and
+                (source_id, target_id) not in existing_rels):
+
+                result.relationships.append(ResourceRelationship(
+                    source_id=source_id,
+                    target_id=target_id,
+                    relationship_type='depends_on',
+                    label=None
+                ))
+                existing_rels.add((source_id, target_id))
+
+    def _enrich_resources_with_state(
+        self,
+        result: ParseResult,
+        state_result: "TerraformStateResult"
+    ) -> None:
+        """Enrich parsed resources with actual values from terraform state."""
+        from terraformgraph.terraform_tools import map_state_to_resource_id
+
+        # Build index by full_id
+        resource_index = {r.full_id: r for r in result.resources}
+
+        for state_res in state_result.resources:
+            resource_id = map_state_to_resource_id(state_res.address)
+
+            if resource_id in resource_index:
+                resource = resource_index[resource_id]
+                # Merge state values into attributes (state values take precedence)
+                for key, value in state_res.values.items():
+                    if value is not None:
+                        resource.attributes[f"_state_{key}"] = value
+
+    def get_state_result(self) -> Optional["TerraformStateResult"]:
+        """Get the terraform state result if available."""
+        return self._state_result
+
+    def get_graph_result(self) -> Optional["TerraformGraphResult"]:
+        """Get the terraform graph result if available."""
+        return self._graph_result
 
     def _parse_file(self, file_path: Path, result: ParseResult, module_path: str) -> None:
         """Parse a single Terraform file."""

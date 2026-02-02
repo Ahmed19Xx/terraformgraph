@@ -80,6 +80,18 @@ Examples:
         help='Enable verbose output'
     )
 
+    parser.add_argument(
+        '--use-graph',
+        action='store_true',
+        help='Use terraform graph for dependency information (requires terraform init)'
+    )
+
+    parser.add_argument(
+        '--use-state',
+        action='store_true',
+        help='Use terraform show -json for actual resource values (requires existing state)'
+    )
+
     args = parser.parse_args()
 
     # Validate paths
@@ -133,7 +145,12 @@ Examples:
         if args.verbose:
             print(f"Parsing Terraform files from {parse_path}...")
 
-        tf_parser = TerraformParser(str(terraform_path), str(icons_path) if icons_path else None)
+        tf_parser = TerraformParser(
+            str(terraform_path),
+            str(icons_path) if icons_path else None,
+            use_terraform_graph=args.use_graph,
+            use_terraform_state=args.use_state,
+        )
 
         if args.environment:
             parse_result = tf_parser.parse_environment(args.environment)
@@ -143,13 +160,23 @@ Examples:
         if args.verbose:
             print(f"Found {len(parse_result.resources)} raw resources")
             print(f"Found {len(parse_result.modules)} module calls")
+            if args.use_graph and tf_parser.get_graph_result():
+                graph = tf_parser.get_graph_result()
+                print(f"Enhanced with terraform graph: {len(graph.edges)} edges")
+            if args.use_state and tf_parser.get_state_result():
+                state = tf_parser.get_state_result()
+                print(f"Enhanced with terraform state: {len(state.resources)} resources")
 
         # Aggregate into logical services
         if args.verbose:
             print("Aggregating into logical services...")
 
         aggregator = ResourceAggregator()
-        aggregated = aggregator.aggregate(parse_result, terraform_dir=parse_path)
+        aggregated = aggregator.aggregate(
+            parse_result,
+            terraform_dir=parse_path,
+            state_result=tf_parser.get_state_result(),
+        )
 
         if args.verbose:
             print(f"Created {len(aggregated.services)} logical services:")
