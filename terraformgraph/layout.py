@@ -33,7 +33,12 @@ class ServiceGroup:
 
 @dataclass
 class LayoutConfig:
-    """Configuration for layout engine."""
+    """Configuration for layout engine.
+
+    Supports responsive sizing based on content. Base values are scaled
+    according to the number of services and VPC complexity.
+    """
+    # Base dimensions (will be scaled)
     canvas_width: int = 1400
     canvas_height: int = 900
     padding: int = 30
@@ -44,12 +49,80 @@ class LayoutConfig:
     row_spacing: int = 100
     column_spacing: int = 130
 
+    # Responsive scaling factors
+    min_scale: float = 0.6
+    max_scale: float = 1.5
+
+    def scaled(self, scale: float) -> "LayoutConfig":
+        """Create a new config with scaled dimensions."""
+        clamped_scale = max(self.min_scale, min(self.max_scale, scale))
+        return LayoutConfig(
+            canvas_width=int(self.canvas_width * clamped_scale),
+            canvas_height=int(self.canvas_height * clamped_scale),
+            padding=int(self.padding * clamped_scale),
+            icon_size=int(self.icon_size * clamped_scale),
+            icon_spacing=int(self.icon_spacing * clamped_scale),
+            group_padding=int(self.group_padding * clamped_scale),
+            label_height=int(self.label_height * clamped_scale),
+            row_spacing=int(self.row_spacing * clamped_scale),
+            column_spacing=int(self.column_spacing * clamped_scale),
+            min_scale=self.min_scale,
+            max_scale=self.max_scale,
+        )
+
 
 class LayoutEngine:
     """Computes positions for diagram elements."""
 
     def __init__(self, config: Optional[LayoutConfig] = None):
-        self.config = config or LayoutConfig()
+        self.base_config = config or LayoutConfig()
+        self.config = self.base_config
+
+    def _compute_responsive_scale(self, aggregated: AggregatedResult) -> float:
+        """Compute scale factor based on content complexity.
+
+        Factors considered:
+        - Number of services
+        - Number of AZs
+        - Number of subnets per AZ
+        - Number of VPC endpoints
+        """
+        num_services = len(aggregated.services)
+
+        # Count VPC complexity
+        num_azs = 0
+        max_subnets_per_az = 0
+        num_endpoints = 0
+
+        if aggregated.vpc_structure:
+            num_azs = len(aggregated.vpc_structure.availability_zones)
+            for az in aggregated.vpc_structure.availability_zones:
+                max_subnets_per_az = max(max_subnets_per_az, len(az.subnets))
+            num_endpoints = len(aggregated.vpc_structure.endpoints) if aggregated.vpc_structure.endpoints else 0
+
+        # Base scale on service count (optimal for 8-12 services)
+        service_scale = 1.0
+        if num_services <= 4:
+            service_scale = 0.8
+        elif num_services <= 8:
+            service_scale = 0.9
+        elif num_services <= 15:
+            service_scale = 1.0
+        elif num_services <= 25:
+            service_scale = 1.2
+        else:
+            service_scale = 1.4
+
+        # Adjust for VPC complexity
+        vpc_scale = 1.0
+        if num_azs >= 3:
+            vpc_scale *= 1.1
+        if max_subnets_per_az >= 4:
+            vpc_scale *= 1.15
+        if num_endpoints >= 4:
+            vpc_scale *= 1.05
+
+        return service_scale * vpc_scale
 
     def compute_layout(
         self,
@@ -62,11 +135,21 @@ class LayoutEngine:
         - Top row: Internet-facing services (CloudFront, WAF, Route53, ACM)
         - Middle: VPC box with ALB, ECS, EC2
         - Bottom rows: Global services grouped by function
+
+        Dimensions are computed responsively based on content.
         """
+        # Compute responsive scale and apply to config
+        scale = self._compute_responsive_scale(aggregated)
+        self.config = self.base_config.scaled(scale)
+
         positions: Dict[str, Position] = {}
         groups: List[ServiceGroup] = []
 
-        # Create AWS Cloud container
+        # Compute required height based on content (will adjust AWS Cloud later)
+        estimated_height = self._estimate_required_height(aggregated)
+        actual_canvas_height = max(self.config.canvas_height, estimated_height)
+
+        # Create AWS Cloud container (height will be finalized after layout)
         aws_cloud = ServiceGroup(
             group_type='aws_cloud',
             name='AWS Cloud',
@@ -74,7 +157,7 @@ class LayoutEngine:
                 x=self.config.padding,
                 y=self.config.padding,
                 width=self.config.canvas_width - 2 * self.config.padding,
-                height=self.config.canvas_height - 2 * self.config.padding
+                height=actual_canvas_height - 2 * self.config.padding
             )
         )
         groups.append(aws_cloud)
@@ -219,6 +302,78 @@ class LayoutEngine:
 
         return positions, groups
 
+    def _estimate_required_height(self, aggregated: AggregatedResult) -> int:
+        """Estimate the required canvas height based on content.
+
+        Calculates height needed for:
+        - Edge services row
+        - VPC box (with AZs and subnets)
+        - Data services row
+        - Messaging services row
+        - Security/other services row
+        """
+        height = self.config.padding + 40  # Initial offset
+
+        # Categorize services to count rows
+        edge_services = []
+        vpc_services = []
+        data_services = []
+        messaging_services = []
+        other_services = []
+
+        for service in aggregated.services:
+            st = service.service_type
+            if st in ('cloudfront', 'waf', 'route53', 'acm', 'cognito'):
+                edge_services.append(service)
+            elif st in ('alb', 'ecs', 'ec2', 'security_groups', 'security', 'vpc'):
+                vpc_services.append(service)
+            elif st in ('s3', 'dynamodb', 'mongodb'):
+                data_services.append(service)
+            elif st in ('sqs', 'sns', 'eventbridge'):
+                messaging_services.append(service)
+            else:
+                other_services.append(service)
+
+        # Row 1: Edge services
+        if edge_services:
+            height += self.config.row_spacing + 20
+
+        # Row 2: VPC box
+        vpc_internal = [s for s in vpc_services if s.service_type != 'vpc']
+        has_vpc_content = len(vpc_internal) > 0 or aggregated.vpc_structure is not None
+
+        if has_vpc_content:
+            services_with_subnets = [s for s in vpc_internal if s.subnet_ids]
+            services_without_subnets = [s for s in vpc_internal if not s.subnet_ids]
+
+            if aggregated.vpc_structure:
+                vpc_height = self._compute_vpc_height(
+                    aggregated.vpc_structure,
+                    has_vpc_services=len(services_without_subnets) > 0,
+                    has_services_in_subnets=len(services_with_subnets) > 0,
+                )
+            else:
+                vpc_height = 180
+
+            height += vpc_height + 40
+
+        # Row 3: Data services
+        if data_services:
+            height += self.config.row_spacing
+
+        # Row 4: Messaging services
+        if messaging_services:
+            height += self.config.row_spacing
+
+        # Row 5: Security + Other services
+        if other_services:
+            height += self.config.row_spacing
+
+        # Bottom padding
+        height += self.config.padding + 40
+
+        return int(height)
+
     def _center_row_start(
         self,
         num_items: int,
@@ -260,8 +415,8 @@ class LayoutEngine:
             max_subnets = max(max_subnets, len(az.subnets))
 
         # Calculate height: base height + per-subnet height
-        # Increase subnet height if services are inside
-        subnet_height = 85 if has_services_in_subnets else 50
+        # Increase subnet height if services are inside (94px = icon 64 + padding 30)
+        subnet_height = 94 if has_services_in_subnets else 50
         az_header_height = 30  # Height for AZ header
         vpc_header_height = 40  # Height for VPC header
         base_padding = 40  # Top and bottom padding
@@ -402,7 +557,7 @@ class LayoutEngine:
             # Increase subnet height if it contains services
             actual_subnet_height = subnet_height
             if subnet_services:
-                actual_subnet_height = max(subnet_height, self.config.icon_size + 20)
+                actual_subnet_height = max(subnet_height, self.config.icon_size + 30)  # 64 + 30 = 94px
 
             positions[subnet.resource_id] = Position(
                 x=az_pos.x + subnet_padding,

@@ -61,4 +61,12 @@ Thumbs.db
 # Local config
 .tfgraph/
 .claude
-CLAUDE.md
+CLAUDE.mdCLAUDE.md
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+.terraform.lock.hcl
+tfplan
+crash.log

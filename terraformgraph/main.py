@@ -191,26 +191,32 @@ Examples:
                     print(f"    - {az.name}: {len(az.subnets)} subnets")
                 print(f"  - {len(vpc.endpoints)} VPC Endpoints")
 
-        # Setup layout
-        config = LayoutConfig()
-        layout_engine = LayoutEngine(config)
+        # Setup layout (config is now responsive and scaled based on content)
+        base_config = LayoutConfig()
+        layout_engine = LayoutEngine(base_config)
         positions, groups = layout_engine.compute_layout(aggregated)
+
+        # Get the scaled config and calculated height from the layout engine
+        responsive_config = layout_engine.config
+        actual_height = layout_engine._estimate_required_height(aggregated)
 
         if args.verbose:
             print(f"Positioned {len(positions)} services")
+            print(f"Canvas: {responsive_config.canvas_width}x{actual_height} (scale: {layout_engine._compute_responsive_scale(aggregated):.2f})")
 
-        # Setup renderers
+        # Setup renderers with the responsive config
         icon_mapper = IconMapper(str(icons_path) if icons_path else None)
-        svg_renderer = SVGRenderer(icon_mapper, config)
+        svg_renderer = SVGRenderer(icon_mapper, responsive_config)
         html_renderer = HTMLRenderer(svg_renderer)
 
-        # Generate HTML
+        # Generate HTML with actual calculated height
         if args.verbose:
             print("Generating HTML output...")
 
         html_content = html_renderer.render_html(
             aggregated, positions, groups,
-            environment=args.environment or title
+            environment=args.environment or title,
+            actual_height=actual_height
         )
 
         # Write output

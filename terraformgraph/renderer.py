@@ -32,16 +32,22 @@ class SVGRenderer:
         positions: Dict[str, Position],
         connections: List[LogicalConnection],
         groups: List[ServiceGroup],
-        vpc_structure: Optional["VPCStructure"] = None
+        vpc_structure: Optional["VPCStructure"] = None,
+        actual_height: Optional[int] = None
     ) -> str:
         """Generate SVG content for the diagram."""
         svg_parts = []
 
-        # SVG header with ID for export
+        # Use actual height if provided (from layout engine), otherwise use config
+        canvas_height = actual_height if actual_height else self.config.canvas_height
+
+        # SVG header with responsive viewBox
+        # width="100%" allows SVG to scale to container, preserveAspectRatio maintains proportions
         svg_parts.append(f'''<svg id="diagram-svg" xmlns="http://www.w3.org/2000/svg"
             xmlns:xlink="http://www.w3.org/1999/xlink"
-            viewBox="0 0 {self.config.canvas_width} {self.config.canvas_height}"
-            width="{self.config.canvas_width}" height="{self.config.canvas_height}">''')
+            viewBox="0 0 {self.config.canvas_width} {canvas_height}"
+            width="100%" height="auto" preserveAspectRatio="xMidYMin meet"
+            style="max-width: {self.config.canvas_width}px; min-height: {canvas_height}px;">''')
 
         # Defs for arrows and filters
         svg_parts.append(self._render_defs())
@@ -198,7 +204,9 @@ class SVGRenderer:
         border_color, bg_color = colors.get(subnet_info.subnet_type, colors['unknown'])
 
         return f'''
-        <g class="subnet subnet-{subnet_info.subnet_type}" data-subnet-id="{html.escape(subnet_id)}">
+        <g class="subnet subnet-{subnet_info.subnet_type}" data-subnet-id="{html.escape(subnet_id)}"
+            data-min-x="{pos.x}" data-min-y="{pos.y}"
+            data-max-x="{pos.x + pos.width}" data-max-y="{pos.y + pos.height}">
             <rect x="{pos.x}" y="{pos.y}" width="{pos.width}" height="{pos.height}"
                 fill="{bg_color}" stroke="{border_color}" stroke-width="1.5" rx="4" ry="4"/>
             <text x="{pos.x + 8}" y="{pos.y + pos.height/2 + 4}"
@@ -219,11 +227,11 @@ class SVGRenderer:
         pos: Position,
         endpoint_info: "VPCEndpoint"
     ) -> str:
-        """Render a VPC endpoint with AWS PrivateLink icon.
+        """Render a VPC endpoint with AWS icon and type badge.
 
         Colors for badge:
         - gateway: green (S3, DynamoDB)
-        - interface: blue (ECR, CloudWatch, etc.)
+        - interface: blue (ECR, CloudWatch, SSM, etc.)
         """
         # Badge colors by type
         badge_colors = {
@@ -232,22 +240,21 @@ class SVGRenderer:
         }
         badge_color = badge_colors.get(endpoint_info.endpoint_type, '#0052cc')
 
-        # Format service name for display
-        service_display = endpoint_info.service.upper()
-        if '.' in endpoint_info.service:
-            # e.g., "ecr.api" -> "ECR"
-            parts = endpoint_info.service.split('.')
-            service_display = parts[0].upper()
+        # Extract clean service name
+        service_name = endpoint_info.service
+        if '.' in service_name:
+            service_name = service_name.split('.')[0]
+        service_display = service_name.upper()
 
-        # Type indicator
-        type_label = "GW" if endpoint_info.endpoint_type == "gateway" else "IF"
-
-        # Try to get AWS PrivateLink icon
-        icon_svg = self.icon_mapper.get_icon_svg('aws_vpc_endpoint', 48)
+        # Type abbreviation
+        type_abbr = "GW" if endpoint_info.endpoint_type == "gateway" else "IF"
 
         # Box dimensions
         box_width = pos.width
         box_height = pos.height
+
+        # Try to get AWS VPC Endpoints icon
+        icon_svg = self.icon_mapper.get_icon_svg('aws_vpc_endpoint', 32)
 
         if icon_svg:
             icon_content = self._extract_svg_content(icon_svg)
@@ -256,22 +263,22 @@ class SVGRenderer:
                 <rect x="{pos.x}" y="{pos.y}" width="{box_width}" height="{box_height}"
                     fill="white" stroke="#e0e0e0" stroke-width="1" rx="6" ry="6"
                     filter="url(#shadow)"/>
-                <svg x="{pos.x + 4}" y="{pos.y + 4}" width="32" height="32" viewBox="0 0 64 64">
+                <svg x="{pos.x + 4}" y="{pos.y + 4}" width="32" height="32" viewBox="0 0 48 48">
                     {icon_content}
                 </svg>
-                <text x="{pos.x + 40}" y="{pos.y + 18}"
+                <text x="{pos.x + 40}" y="{pos.y + 16}"
                     font-family="Arial, sans-serif" font-size="9" fill="#333"
                     font-weight="bold">{html.escape(service_display)}</text>
-                <text x="{pos.x + 40}" y="{pos.y + 30}"
+                <text x="{pos.x + 40}" y="{pos.y + 28}"
                     font-family="Arial, sans-serif" font-size="8" fill="#666">
-                    {type_label}
+                    {type_abbr}
                 </text>
                 <circle cx="{pos.x + box_width - 10}" cy="{pos.y + 10}" r="7"
                     fill="{badge_color}"/>
                 <text x="{pos.x + box_width - 10}" y="{pos.y + 13}"
                     font-family="Arial, sans-serif" font-size="6" fill="white"
-                    text-anchor="middle" font-weight="bold">{type_label}</text>
-                <title>{html.escape(endpoint_info.name)} ({endpoint_info.endpoint_type} endpoint)</title>
+                    text-anchor="middle" font-weight="bold">{type_abbr}</text>
+                <title>{html.escape(endpoint_info.name)} ({endpoint_info.endpoint_type} endpoint for {service_name})</title>
             </g>
             '''
         else:
@@ -282,23 +289,22 @@ class SVGRenderer:
             }
             border_color, bg_color = fallback_colors.get(endpoint_info.endpoint_type, fallback_colors['interface'])
             cx = pos.x + box_width / 2
-            cy = pos.y + box_height / 2
 
             return f'''
             <g class="vpc-endpoint endpoint-{endpoint_info.endpoint_type}" data-endpoint-id="{html.escape(endpoint_id)}">
                 <rect x="{pos.x}" y="{pos.y}" width="{box_width}" height="{box_height}"
                     fill="{bg_color}" stroke="{border_color}" stroke-width="2" rx="6" ry="6"/>
-                <text x="{cx}" y="{cy - 2}"
-                    font-family="Arial, sans-serif" font-size="10" fill="{border_color}"
+                <text x="{cx}" y="{pos.y + box_height/2 - 4}"
+                    font-family="Arial, sans-serif" font-size="11" fill="{border_color}"
                     text-anchor="middle" font-weight="bold">
                     {html.escape(service_display)}
                 </text>
-                <text x="{cx}" y="{cy + 12}"
-                    font-family="Arial, sans-serif" font-size="8" fill="{border_color}"
-                    text-anchor="middle" opacity="0.7">
-                    {type_label}
+                <text x="{cx}" y="{pos.y + box_height/2 + 10}"
+                    font-family="Arial, sans-serif" font-size="9" fill="{border_color}"
+                    text-anchor="middle" opacity="0.8">
+                    {type_abbr}
                 </text>
-                <title>{html.escape(endpoint_info.name)} ({endpoint_info.endpoint_type} endpoint)</title>
+                <title>{html.escape(endpoint_info.name)} ({endpoint_info.endpoint_type} endpoint for {service_name})</title>
             </g>
             '''
 
@@ -324,12 +330,20 @@ class SVGRenderer:
         # Determine if this is a VPC service
         is_vpc_service = 'true' if service.is_vpc_resource else 'false'
 
+        # Get subnet constraint if service has subnet_ids (use first subnet for constraint)
+        subnet_attr = ''
+        if service.subnet_ids:
+            # Filter to only aws_subnet references (not _state_subnet: prefixed)
+            aws_subnets = [s for s in service.subnet_ids if s.startswith('aws_subnet.')]
+            if aws_subnets:
+                subnet_attr = f'data-subnet-id="{html.escape(aws_subnets[0])}"'
+
         if icon_svg:
             icon_content = self._extract_svg_content(icon_svg)
 
             svg = f'''
             <g class="service draggable" data-service-id="{html.escape(service.id)}"
-               data-tooltip="{html.escape(tooltip)}" data-is-vpc="{is_vpc_service}"
+               data-tooltip="{html.escape(tooltip)}" data-is-vpc="{is_vpc_service}" {subnet_attr}
                transform="translate({pos.x}, {pos.y})" style="cursor: grab;">
                 <rect class="service-bg" x="-8" y="-8"
                     width="{pos.width + 16}" height="{pos.height + 36}"
@@ -349,7 +363,7 @@ class SVGRenderer:
         else:
             svg = f'''
             <g class="service draggable" data-service-id="{html.escape(service.id)}"
-               data-tooltip="{html.escape(tooltip)}" data-is-vpc="{is_vpc_service}"
+               data-tooltip="{html.escape(tooltip)}" data-is-vpc="{is_vpc_service}" {subnet_attr}
                transform="translate({pos.x}, {pos.y})" style="cursor: grab;">
                 <rect class="service-bg" x="-8" y="-8"
                     width="{pos.width + 16}" height="{pos.height + 36}"
@@ -569,11 +583,45 @@ class HTMLRenderer:
         .diagram-wrapper {{
             padding: 20px;
             overflow: auto;
-            max-height: 70vh;
         }}
         .diagram-wrapper svg {{
             display: block;
             margin: 0 auto;
+            width: 100%;
+            height: auto;
+        }}
+        @media (max-width: 1200px) {{
+            .header {{
+                flex-direction: column;
+                gap: 15px;
+            }}
+            .header-right {{
+                flex-direction: column;
+                width: 100%;
+            }}
+            .stats {{
+                justify-content: center;
+            }}
+            .export-buttons {{
+                justify-content: center;
+            }}
+        }}
+        @media (max-width: 768px) {{
+            body {{
+                padding: 10px;
+            }}
+            .header h1 {{
+                font-size: 18px;
+            }}
+            .stats {{
+                gap: 15px;
+            }}
+            .stat-value {{
+                font-size: 20px;
+            }}
+            .legend-grid {{
+                grid-template-columns: 1fr;
+            }}
         }}
         .service.dragging {{
             opacity: 0.8;
@@ -948,8 +996,23 @@ class HTMLRenderer:
                 let newX = svgP.x - offset.x;
                 let newY = svgP.y - offset.y;
 
-                // Constrain to VPC if it's a VPC service
-                if (dragging.dataset.isVpc === 'true') {{
+                // Check if service belongs to a specific subnet
+                const subnetId = dragging.dataset.subnetId;
+                if (subnetId) {{
+                    // Constrain to subnet bounds
+                    const subnetGroup = document.querySelector(`.subnet[data-subnet-id="${{subnetId}}"]`);
+                    if (subnetGroup) {{
+                        const padding = 10;
+                        const minX = parseFloat(subnetGroup.dataset.minX) + padding;
+                        const minY = parseFloat(subnetGroup.dataset.minY) + padding;
+                        const maxX = parseFloat(subnetGroup.dataset.maxX) - iconSize - padding;
+                        const maxY = parseFloat(subnetGroup.dataset.maxY) - iconSize - padding;
+
+                        newX = Math.max(minX, Math.min(maxX, newX));
+                        newY = Math.max(minY, Math.min(maxY, newY));
+                    }}
+                }} else if (dragging.dataset.isVpc === 'true') {{
+                    // Constrain to VPC bounds
                     const vpcGroup = document.querySelector('.group-vpc .group-bg');
                     if (vpcGroup) {{
                         const minX = parseFloat(vpcGroup.dataset.minX) + 20;
@@ -1353,7 +1416,8 @@ class HTMLRenderer:
         aggregated: AggregatedResult,
         positions: Dict[str, Position],
         groups: List[ServiceGroup],
-        environment: str = 'dev'
+        environment: str = 'dev',
+        actual_height: Optional[int] = None
     ) -> str:
         """Generate complete HTML page with interactive diagram."""
         svg_content = self.svg_renderer.render_svg(
@@ -1361,7 +1425,8 @@ class HTMLRenderer:
             positions,
             aggregated.connections,
             groups,
-            vpc_structure=aggregated.vpc_structure
+            vpc_structure=aggregated.vpc_structure,
+            actual_height=actual_height
         )
 
         total_resources = sum(len(s.resources) for s in aggregated.services)

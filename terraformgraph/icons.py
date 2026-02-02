@@ -292,10 +292,10 @@ TERRAFORM_TO_ICON: Dict[str, Tuple[str, str]] = {
     # ==========================================================================
     # SECURITY & IDENTITY
     # ==========================================================================
-    'aws_security_group': ('Arch_Security-Identity-Compliance', 'Arch_AWS-Network-Firewall'),
-    'aws_security_group_rule': ('Arch_Security-Identity-Compliance', 'Arch_AWS-Network-Firewall'),
-    'aws_vpc_security_group_ingress_rule': ('Arch_Security-Identity-Compliance', 'Arch_AWS-Network-Firewall'),
-    'aws_vpc_security_group_egress_rule': ('Arch_Security-Identity-Compliance', 'Arch_AWS-Network-Firewall'),
+    'aws_security_group': ('Arch_Security-Identity-Compliance', 'Arch_AWS-Shield'),
+    'aws_security_group_rule': ('Arch_Security-Identity-Compliance', 'Arch_AWS-Shield'),
+    'aws_vpc_security_group_ingress_rule': ('Arch_Security-Identity-Compliance', 'Arch_AWS-Shield'),
+    'aws_vpc_security_group_egress_rule': ('Arch_Security-Identity-Compliance', 'Arch_AWS-Shield'),
     'aws_network_acl': ('Arch_Security-Identity-Compliance', 'Arch_AWS-Network-Firewall'),
     'aws_networkfirewall_firewall': ('Arch_Security-Identity-Compliance', 'Arch_AWS-Network-Firewall'),
     'aws_networkfirewall_firewall_policy': ('Arch_Security-Identity-Compliance', 'Arch_AWS-Network-Firewall'),
