@@ -378,6 +378,40 @@ class ResourceAggregator:
 
         return result
 
+    @staticmethod
+    def get_aggregation_metadata(
+        result: AggregatedResult, threshold: int = 3
+    ) -> Dict[str, Dict[str, Any]]:
+        """Return per-service-type metadata for client-side aggregation.
+
+        Returns a dict mapping service_type to:
+          - count: number of services of this type
+          - label: human-readable label
+          - icon_resource_type: Terraform type for icon lookup
+          - defaultAggregated: True if count >= threshold
+          - service_ids: list of service IDs in this group
+          - service_names: list of service display names in this group
+        """
+        type_info: Dict[str, Dict[str, Any]] = {}
+        for service in result.services:
+            st = service.service_type
+            if st not in type_info:
+                type_info[st] = {
+                    "count": 0,
+                    "label": st.replace("_", " ").title(),
+                    "icon_resource_type": service.icon_resource_type,
+                    "service_ids": [],
+                    "service_names": [],
+                }
+            type_info[st]["count"] += 1
+            type_info[st]["service_ids"].append(service.id)
+            type_info[st]["service_names"].append(service.name)
+
+        for st, info in type_info.items():
+            info["defaultAggregated"] = info["count"] >= threshold
+
+        return type_info
+
 
 class VPCStructureBuilder:
     """Builds VPC structure from Terraform resources."""

@@ -8,10 +8,11 @@ Generates interactive HTML diagrams with:
 """
 
 import html
+import json
 import re
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from .aggregator import AggregatedResult, LogicalConnection, LogicalService
+from .aggregator import AggregatedResult, LogicalConnection, LogicalService, ResourceAggregator
 from .icons import IconMapper
 from .layout import LayoutConfig, Position, ServiceGroup
 
@@ -82,14 +83,22 @@ class SVGRenderer:
                         )
             svg_parts.append("</g>")
 
+        # Build service_type_map for connection rendering
+        service_type_map: Dict[str, str] = {}
+        for service in services:
+            service_type_map[service.id] = service.service_type
+
         # Connections container - render individual connections
         svg_parts.append('<g id="connections-layer">')
-        # Create position lookup for rendering individual connections
         for connection in connections:
             source_pos = positions.get(connection.source_id)
             target_pos = positions.get(connection.target_id)
             if source_pos and target_pos:
-                svg_parts.append(self._render_connection(source_pos, target_pos, connection))
+                svg_parts.append(
+                    self._render_connection(
+                        source_pos, target_pos, connection, service_type_map
+                    )
+                )
         svg_parts.append("</g>")
 
         # Render VPC endpoints layer
@@ -376,6 +385,7 @@ class SVGRenderer:
 
             svg = f"""
             <g class="service draggable" data-service-id="{html.escape(service.id)}"
+               data-service-type="{html.escape(service.service_type)}"
                data-tooltip="{html.escape(tooltip)}" data-is-vpc="{is_vpc_service}" {subnet_attr}
                transform="translate({pos.x}, {pos.y})" style="cursor: grab;">
                 <rect class="service-bg" x="-8" y="-8"
@@ -396,6 +406,7 @@ class SVGRenderer:
         else:
             svg = f"""
             <g class="service draggable" data-service-id="{html.escape(service.id)}"
+               data-service-type="{html.escape(service.service_type)}"
                data-tooltip="{html.escape(tooltip)}" data-is-vpc="{is_vpc_service}" {subnet_attr}
                transform="translate({pos.x}, {pos.y})" style="cursor: grab;">
                 <rect class="service-bg" x="-8" y="-8"
@@ -435,7 +446,11 @@ class SVGRenderer:
         return "0 0 64 64"
 
     def _render_connection(
-        self, source_pos: Position, target_pos: Position, connection: LogicalConnection
+        self,
+        source_pos: Position,
+        target_pos: Position,
+        connection: LogicalConnection,
+        service_type_map: Optional[Dict[str, str]] = None,
     ) -> str:
         """Render a connection line between services."""
         styles = {
@@ -481,9 +496,16 @@ class SVGRenderer:
         path = f"M {sx} {sy} Q {mid_x} {sy}, {mid_x} {mid_y} T {tx} {ty}"
 
         label = connection.label or ""
+        source_type = ""
+        target_type = ""
+        if service_type_map:
+            source_type = service_type_map.get(connection.source_id, "")
+            target_type = service_type_map.get(connection.target_id, "")
         return f"""
         <g class="connection" data-source="{html.escape(connection.source_id)}"
            data-target="{html.escape(connection.target_id)}"
+           data-source-type="{html.escape(source_type)}"
+           data-target-type="{html.escape(target_type)}"
            data-conn-type="{connection.connection_type}"
            data-label="{html.escape(label)}">
             <path class="connection-hitarea" d="{path}" fill="none" stroke="transparent" stroke-width="15"/>
@@ -777,9 +799,12 @@ class HTMLRenderer:
             font-size: 13px;
         }}
         .legend-line {{
-            width: 30px;
-            height: 3px;
-            border-radius: 2px;
+            width: 36px;
+            height: 14px;
+            flex-shrink: 0;
+        }}
+        .legend-line svg {{
+            display: block;
         }}
         .legend-box {{
             width: 24px;
@@ -864,6 +889,168 @@ class HTMLRenderer:
             margin-top: 8px;
             font-size: 11px;
         }}
+        /* ============ AGGREGATION UI ============ */
+        .aggregation-panel {{
+            margin-top: 15px;
+            padding: 15px 20px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }}
+        .aggregation-panel-label {{
+            font-size: 13px;
+            font-weight: 600;
+            color: #232f3e;
+            margin-right: 5px;
+        }}
+        .aggregation-chip {{
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            user-select: none;
+            border: 2px solid;
+        }}
+        .aggregation-chip.active {{
+            color: white;
+        }}
+        .aggregation-chip.inactive {{
+            background: transparent;
+        }}
+        .aggregation-chip:hover {{
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }}
+        .aggregation-chip .chip-check {{
+            font-size: 11px;
+        }}
+        /* Aggregate node styles */
+        .aggregate-node .service-bg {{
+            stroke-dasharray: 6,3 !important;
+            stroke-width: 2 !important;
+        }}
+        .aggregate-node {{
+            cursor: pointer;
+        }}
+        .aggregate-badge {{
+            pointer-events: none;
+        }}
+        /* Aggregate connection styles */
+        .aggregate-connection .connection-path {{
+            opacity: 0.6;
+        }}
+        .aggregate-connection .multiplicity-label {{
+            font-family: Arial, sans-serif;
+            font-size: 10px;
+            font-weight: bold;
+            fill: #666;
+        }}
+        /* Popover styles */
+        .aggregate-popover {{
+            position: fixed;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.2);
+            z-index: 1500;
+            max-height: 300px;
+            overflow-y: auto;
+            min-width: 220px;
+            padding: 8px 0;
+        }}
+        .aggregate-popover-header {{
+            padding: 8px 16px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #666;
+            border-bottom: 1px solid #eee;
+            text-transform: uppercase;
+        }}
+        .aggregate-popover-item {{
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 16px;
+            cursor: pointer;
+            font-size: 13px;
+            color: #333;
+            transition: background 0.15s;
+        }}
+        .aggregate-popover-item:hover {{
+            background: #f5f5f5;
+        }}
+        .aggregate-popover-item.selected {{
+            background: #ede7f6;
+            color: #6200ea;
+            font-weight: 500;
+        }}
+        .aggregate-popover-item svg {{
+            width: 24px;
+            height: 24px;
+            flex-shrink: 0;
+        }}
+        /* Transition animations for aggregation */
+        .service.agg-hidden {{
+            display: none !important;
+        }}
+        .connection.agg-hidden {{
+            display: none !important;
+        }}
+        .connection.conn-type-hidden {{
+            display: none !important;
+        }}
+        /* ============ CONNECTION TYPE FILTER UI ============ */
+        .conn-filter-panel {{
+            margin-top: 15px;
+            padding: 15px 20px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }}
+        .conn-filter-panel-label {{
+            font-size: 13px;
+            font-weight: 600;
+            color: #232f3e;
+            margin-right: 5px;
+        }}
+        .conn-filter-chip {{
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+            user-select: none;
+            border: 2px solid;
+        }}
+        .conn-filter-chip.active {{
+            color: white;
+        }}
+        .conn-filter-chip.inactive {{
+            background: transparent;
+        }}
+        .conn-filter-chip:hover {{
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }}
+        .conn-filter-chip .chip-check {{
+            font-size: 11px;
+        }}
     </style>
 </head>
 <body>
@@ -907,6 +1094,14 @@ class HTMLRenderer:
                 {svg_content}
             </div>
         </div>
+        <div class="aggregation-panel" id="aggregation-panel" style="display:none;">
+            <span class="aggregation-panel-label">Aggregation:</span>
+            <div id="aggregation-chips" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+        </div>
+        <div class="conn-filter-panel" id="conn-filter-panel">
+            <span class="conn-filter-panel-label">Connections:</span>
+            <div id="conn-filter-chips" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+        </div>
         <div class="legend">
             <h3>Legend</h3>
             <div class="legend-grid">
@@ -914,19 +1109,19 @@ class HTMLRenderer:
                     <h4>Connection Types</h4>
                     <div class="legend-items">
                         <div class="legend-item">
-                            <div class="legend-line" style="background: #3B48CC;"></div>
+                            <div class="legend-line"><svg width="36" height="14" xmlns="http://www.w3.org/2000/svg"><defs><marker id="lm-data" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#3B48CC"/></marker></defs><line x1="0" y1="7" x2="28" y2="7" stroke="#3B48CC" stroke-width="2" marker-end="url(#lm-data)"/></svg></div>
                             <span>Data Flow</span>
                         </div>
                         <div class="legend-item">
-                            <div class="legend-line" style="background: #E7157B;"></div>
+                            <div class="legend-line"><svg width="36" height="14" xmlns="http://www.w3.org/2000/svg"><defs><marker id="lm-trigger" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#E7157B"/></marker></defs><line x1="0" y1="7" x2="28" y2="7" stroke="#E7157B" stroke-width="2" marker-end="url(#lm-trigger)"/></svg></div>
                             <span>Event Trigger</span>
                         </div>
                         <div class="legend-item">
-                            <div class="legend-line" style="background: #6c757d;"></div>
+                            <div class="legend-line"><svg width="36" height="14" xmlns="http://www.w3.org/2000/svg"><defs><marker id="lm-encrypt" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#6c757d"/></marker></defs><line x1="0" y1="7" x2="28" y2="7" stroke="#6c757d" stroke-width="2" stroke-dasharray="4,3" marker-end="url(#lm-encrypt)"/></svg></div>
                             <span>Encryption</span>
                         </div>
                         <div class="legend-item">
-                            <div class="legend-line" style="background: #999;"></div>
+                            <div class="legend-line"><svg width="36" height="14" xmlns="http://www.w3.org/2000/svg"><defs><marker id="lm-ref" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#999"/></marker></defs><line x1="0" y1="7" x2="28" y2="7" stroke="#999" stroke-width="2" marker-end="url(#lm-ref)"/></svg></div>
                             <span>Reference</span>
                         </div>
                     </div>
@@ -951,14 +1146,8 @@ class HTMLRenderer:
                 <div class="legend-section">
                     <h4>VPC Endpoints</h4>
                     <div class="legend-items">
-                        <div class="legend-item">
-                            <div class="legend-box" style="background: #e3fcef; border-color: #22a06b;"></div>
-                            <span>Gateway Endpoint (S3, DynamoDB)</span>
-                        </div>
-                        <div class="legend-item">
-                            <div class="legend-box" style="background: #deebff; border-color: #0052cc;"></div>
-                            <span>Interface Endpoint (ECR, Logs, etc.)</span>
-                        </div>
+                        <div class="legend-item"><span><strong>Gateway</strong> &mdash; S3, DynamoDB</span></div>
+                        <div class="legend-item"><span><strong>Interface</strong> &mdash; ECR, Logs, etc.</span></div>
                     </div>
                 </div>
                 <div class="legend-section">
@@ -967,6 +1156,7 @@ class HTMLRenderer:
                         <div class="legend-item">Click service to highlight connections</div>
                         <div class="legend-item">Click connection to highlight endpoints</div>
                         <div class="legend-item">Drag icons to reposition</div>
+                        <div class="legend-item">Toggle connection types and aggregation</div>
                         <div class="legend-item">Save/Load to persist layout</div>
                     </div>
                 </div>
@@ -988,6 +1178,10 @@ class HTMLRenderer:
     </div>
 
     <script>
+        // Aggregation configuration (injected by Python)
+        const AGGREGATION_CONFIG = {aggregation_config_json};
+    </script>
+    <script>
         // Service positions storage
         const servicePositions = {{}};
         const iconSize = {icon_size};
@@ -1000,6 +1194,8 @@ class HTMLRenderer:
             initHighlighting();
             updateAllConnections();
             saveOriginalPositions();
+            initAggregation();
+            initConnectionTypeFilter();
         }});
 
         function saveOriginalPositions() {{
@@ -1019,22 +1215,23 @@ class HTMLRenderer:
             let dragging = null;
             let offset = {{ x: 0, y: 0 }};
 
-            document.querySelectorAll('.service.draggable').forEach(el => {{
-                el.addEventListener('mousedown', startDrag);
+            // Use event delegation on SVG for mousedown to handle dynamically created nodes
+            svg.addEventListener('mousedown', (e) => {{
+                const target = e.target.closest('.service.draggable');
+                if (target) startDrag(e, target);
             }});
-
             svg.addEventListener('mousemove', drag);
             svg.addEventListener('mouseup', endDrag);
             svg.addEventListener('mouseleave', endDrag);
 
-            function startDrag(e) {{
+            function startDrag(e, targetEl) {{
                 e.preventDefault();
 
                 // Guard against null CTM (can happen during rendering)
                 const ctm = svg.getScreenCTM();
                 if (!ctm) return;
 
-                dragging = e.currentTarget;
+                dragging = targetEl;
                 dragging.classList.add('dragging');
                 dragging.style.cursor = 'grabbing';
 
@@ -1176,13 +1373,14 @@ class HTMLRenderer:
             }}
         }}
 
-        function updateConnectionsFor(serviceId) {{
+        var _baseUpdateConnectionsFor = function(serviceId) {{
             document.querySelectorAll('.connection').forEach(conn => {{
                 if (conn.dataset.source === serviceId || conn.dataset.target === serviceId) {{
                     updateConnection(conn);
                 }}
             }});
-        }}
+        }};
+        var updateConnectionsFor = _baseUpdateConnectionsFor;
 
         function updateAllConnections() {{
             document.querySelectorAll('.connection').forEach(updateConnection);
@@ -1238,50 +1436,58 @@ class HTMLRenderer:
             if (hitareaEl) {{
                 hitareaEl.setAttribute('d', path);
             }}
+
+            // Update multiplicity label position if present
+            const multLabel = connEl.querySelector('.multiplicity-label');
+            if (multLabel) {{
+                const labelMidX = (sourcePos.x + targetPos.x) / 2 + halfSize;
+                const labelMidY = (sourcePos.y + targetPos.y) / 2 + halfSize;
+                multLabel.setAttribute('x', `${{labelMidX + 8}}`);
+                multLabel.setAttribute('y', `${{labelMidY - 5}}`);
+            }}
         }}
 
         // ============ HIGHLIGHTING SYSTEM ============
         let currentHighlight = null;
 
         function initHighlighting() {{
-            // Click on service to highlight it and all connected services
-            document.querySelectorAll('.service').forEach(el => {{
-                el.addEventListener('click', (e) => {{
-                    // Don't process if dragging
-                    if (el.classList.contains('dragging')) return;
+            const svg = document.getElementById('diagram-svg');
+
+            // Use event delegation on SVG for dynamic element support
+            svg.addEventListener('click', (e) => {{
+                // Check if clicked on a service
+                const serviceEl = e.target.closest('.service');
+                if (serviceEl) {{
+                    if (serviceEl.classList.contains('dragging')) return;
+                    // Don't interfere with aggregate node popover (handled separately)
+                    if (serviceEl.classList.contains('aggregate-node')) return;
                     e.stopPropagation();
 
-                    const serviceId = el.dataset.serviceId;
-
-                    // Toggle highlight
+                    const serviceId = serviceEl.dataset.serviceId;
                     if (currentHighlight === serviceId) {{
                         clearHighlights();
                     }} else {{
                         highlightService(serviceId);
                     }}
-                }});
-            }});
+                    return;
+                }}
 
-            // Click on individual connection to highlight
-            document.querySelectorAll('.connection').forEach(el => {{
-                el.addEventListener('click', (e) => {{
+                // Check if clicked on a connection
+                const connEl = e.target.closest('.connection');
+                if (connEl) {{
                     e.stopPropagation();
-
-                    const sourceId = el.dataset.source;
-                    const targetId = el.dataset.target;
+                    const sourceId = connEl.dataset.source;
+                    const targetId = connEl.dataset.target;
                     const connKey = `conn:${{sourceId}}->${{targetId}}`;
-
-                    // Toggle highlight
                     if (currentHighlight === connKey) {{
                         clearHighlights();
                     }} else {{
-                        highlightConnection(el, sourceId, targetId);
+                        highlightConnection(connEl, sourceId, targetId);
                     }}
-                }});
-            }});
+                    return;
+                }}
 
-            // Click on background to clear highlights
-            document.getElementById('diagram-svg').addEventListener('click', (e) => {{
+                // Clicked on background
                 if (e.target.tagName === 'svg' || e.target.classList.contains('group-bg')) {{
                     clearHighlights();
                 }}
@@ -1296,7 +1502,7 @@ class HTMLRenderer:
             const connectedServiceIds = new Set([serviceId]);
             const connectedConnections = [];
 
-            document.querySelectorAll('.connection').forEach(conn => {{
+            document.querySelectorAll('.connection:not(.conn-type-hidden)').forEach(conn => {{
                 const srcId = conn.dataset.source;
                 const tgtId = conn.dataset.target;
 
@@ -1414,28 +1620,41 @@ class HTMLRenderer:
 
         function initTooltips() {{
             const tooltip = document.getElementById('tooltip');
+            const svg = document.getElementById('diagram-svg');
+            let tooltipTarget = null;
 
-            document.querySelectorAll('.service').forEach(el => {{
-                el.addEventListener('mouseenter', (e) => {{
-                    if (el.classList.contains('dragging')) return;
-                    const data = el.dataset.tooltip;
+            // Use event delegation on SVG for tooltip support on dynamic elements
+            svg.addEventListener('mouseover', (e) => {{
+                const service = e.target.closest('.service');
+                if (service && service !== tooltipTarget) {{
+                    tooltipTarget = service;
+                    if (service.classList.contains('dragging')) return;
+                    const data = service.dataset.tooltip;
                     if (data) {{
                         tooltip.textContent = data;
                         tooltip.style.display = 'block';
                     }}
-                }});
-                el.addEventListener('mousemove', (e) => {{
-                    if (el.classList.contains('dragging')) return;
+                }}
+            }});
+            svg.addEventListener('mousemove', (e) => {{
+                if (tooltipTarget && !tooltipTarget.classList.contains('dragging')) {{
                     tooltip.style.left = e.clientX + 15 + 'px';
                     tooltip.style.top = e.clientY + 15 + 'px';
-                }});
-                el.addEventListener('mouseleave', () => {{
+                }}
+            }});
+            svg.addEventListener('mouseout', (e) => {{
+                const service = e.target.closest('.service');
+                if (service && service === tooltipTarget) {{
+                    // Check if we're leaving to a child element (not really leaving)
+                    const related = e.relatedTarget;
+                    if (related && service.contains(related)) return;
+                    tooltipTarget = null;
                     tooltip.style.display = 'none';
-                }});
+                }}
             }});
         }}
 
-        function resetPositions() {{
+        var resetPositions = function() {{
             Object.keys(originalPositions).forEach(id => {{
                 servicePositions[id] = {{ ...originalPositions[id] }};
                 const el = document.querySelector(`[data-service-id="${{id}}"]`);
@@ -1444,15 +1663,15 @@ class HTMLRenderer:
                 }}
             }});
             updateAllConnections();
-        }}
+        }};
 
-        function savePositions() {{
+        var savePositions = function() {{
             const data = JSON.stringify(servicePositions);
             localStorage.setItem('diagramPositions', data);
             alert('Layout saved to browser storage!');
-        }}
+        }};
 
-        function loadPositions() {{
+        var loadPositions = function() {{
             const data = localStorage.getItem('diagramPositions');
             if (!data) {{
                 alert('No saved layout found.');
@@ -1471,7 +1690,7 @@ class HTMLRenderer:
             }});
             updateAllConnections();
             alert('Layout loaded!');
-        }}
+        }};
 
         function exportAs(format) {{
             const svg = document.getElementById('diagram-svg');
@@ -1527,6 +1746,939 @@ class HTMLRenderer:
                 closeExportModal();
             }}
         }});
+
+        // ============ AGGREGATION SYSTEM ============
+        const aggregationState = {{}};       // {{ serviceType: bool }} true=aggregated
+        const originalConnections = [];      // snapshot of all original connections
+        const aggregateNodes = {{}};          // {{ serviceType: SVGGElement }}
+        const aggregateConnections = {{}};    // {{ serviceType: [SVGGElement...] }}
+        let activePopover = null;
+        let selectedPopoverResource = null;
+
+        // Connection type filter state: {{ connType: bool }} true=visible
+        const CONNECTION_TYPES = [
+            {{ id: 'data_flow', label: 'Data Flow', color: '#3B48CC' }},
+            {{ id: 'trigger', label: 'Event Trigger', color: '#E7157B' }},
+            {{ id: 'encrypt', label: 'Encryption', color: '#6c757d' }},
+            {{ id: 'default', label: 'Reference', color: '#999999' }}
+        ];
+        const connTypeFilterState = {{}};
+
+        function initAggregation() {{
+            if (!AGGREGATION_CONFIG || !AGGREGATION_CONFIG.groups) return;
+
+            // Check if any group qualifies for aggregation
+            const qualifyingGroups = Object.entries(AGGREGATION_CONFIG.groups)
+                .filter(([_, g]) => g.count >= AGGREGATION_CONFIG.threshold);
+            if (qualifyingGroups.length === 0) return;
+
+            // Snapshot all original connections from DOM
+            snapshotConnections();
+
+            // Load saved state from localStorage or use defaults
+            const savedState = localStorage.getItem('diagramAggregationState');
+            let loaded = null;
+            if (savedState) {{
+                try {{ loaded = JSON.parse(savedState); }} catch(e) {{}}
+            }}
+
+            for (const [stype, group] of Object.entries(AGGREGATION_CONFIG.groups)) {{
+                if (group.count >= AGGREGATION_CONFIG.threshold) {{
+                    aggregationState[stype] = loaded ? !!loaded[stype] : group.defaultAggregated;
+                }}
+            }}
+
+            // Render chip panel
+            renderChipPanel();
+
+            // Apply initial aggregation (skip per-group connection recalc)
+            for (const [stype, isAgg] of Object.entries(aggregationState)) {{
+                if (isAgg) {{
+                    aggregateGroup(stype, true);
+                }}
+            }}
+
+            // Recalculate all connections once, considering all aggregated groups
+            recalculateAllAggregateConnections();
+        }}
+
+        function snapshotConnections() {{
+            originalConnections.length = 0;
+            document.querySelectorAll('.connection').forEach(conn => {{
+                originalConnections.push({{
+                    element: conn,
+                    sourceId: conn.dataset.source,
+                    targetId: conn.dataset.target,
+                    sourceType: conn.dataset.sourceType || '',
+                    targetType: conn.dataset.targetType || '',
+                    label: conn.dataset.label || '',
+                    connType: conn.dataset.connType || 'default',
+                }});
+            }});
+        }}
+
+        function getServiceNodesForType(serviceType) {{
+            return Array.from(document.querySelectorAll(`.service[data-service-type="${{serviceType}}"]`))
+                .filter(el => !el.classList.contains('aggregate-node'));
+        }}
+
+        function computeCentroid(serviceType) {{
+            const group = AGGREGATION_CONFIG.groups[serviceType];
+            if (!group) return {{ x: 0, y: 0 }};
+            let sumX = 0, sumY = 0, count = 0;
+            for (const sid of group.serviceIds) {{
+                const pos = servicePositions[sid];
+                if (pos) {{
+                    sumX += pos.x;
+                    sumY += pos.y;
+                    count++;
+                }}
+            }}
+            if (count === 0) return {{ x: 100, y: 100 }};
+            return {{ x: sumX / count, y: sumY / count }};
+        }}
+
+        function aggregateGroup(serviceType, skipConnectionRecalc) {{
+            const group = AGGREGATION_CONFIG.groups[serviceType];
+            if (!group) return;
+
+            // Hide individual nodes
+            for (const sid of group.serviceIds) {{
+                const el = document.querySelector(`[data-service-id="${{sid}}"]`);
+                if (el) el.classList.add('agg-hidden');
+            }}
+
+            // Calculate centroid
+            const centroid = computeCentroid(serviceType);
+
+            // Create aggregate node in SVG
+            const svg = document.getElementById('diagram-svg');
+            const servicesLayer = document.getElementById('services-layer');
+
+            const aggG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            aggG.classList.add('service', 'draggable', 'aggregate-node');
+            aggG.dataset.serviceId = `__agg_${{serviceType}}`;
+            aggG.dataset.serviceType = serviceType;
+            aggG.dataset.tooltip = `${{group.label}} (${{group.count}} resources - click to inspect)`;
+            aggG.dataset.isVpc = 'false';
+            aggG.setAttribute('transform', `translate(${{centroid.x}}, ${{centroid.y}})`);
+            aggG.style.cursor = 'pointer';
+
+            // Background rect (dashed border)
+            const bgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+            bgRect.classList.add('service-bg');
+            bgRect.setAttribute('x', '-8');
+            bgRect.setAttribute('y', '-8');
+            bgRect.setAttribute('width', `${{iconSize + 16}}`);
+            bgRect.setAttribute('height', `${{iconSize + 36}}`);
+            bgRect.setAttribute('fill', 'white');
+            bgRect.setAttribute('stroke', group.color || '#999');
+            bgRect.setAttribute('stroke-width', '2');
+            bgRect.setAttribute('stroke-dasharray', '6,3');
+            bgRect.setAttribute('rx', '8');
+            bgRect.setAttribute('ry', '8');
+            bgRect.setAttribute('filter', 'url(#shadow)');
+            aggG.appendChild(bgRect);
+
+            // Icon
+            if (group.iconHtml) {{
+                const foreignObj = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
+                foreignObj.setAttribute('x', '0');
+                foreignObj.setAttribute('y', '0');
+                foreignObj.setAttribute('width', `${{iconSize}}`);
+                foreignObj.setAttribute('height', `${{iconSize}}`);
+                const div = document.createElement('div');
+                div.innerHTML = group.iconHtml;
+                div.style.width = `${{iconSize}}px`;
+                div.style.height = `${{iconSize}}px`;
+                const innerSvg = div.querySelector('svg');
+                if (innerSvg) {{
+                    innerSvg.setAttribute('width', `${{iconSize}}`);
+                    innerSvg.setAttribute('height', `${{iconSize}}`);
+                }}
+                foreignObj.appendChild(div);
+                aggG.appendChild(foreignObj);
+            }}
+
+            // Label
+            const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            label.classList.add('service-label');
+            label.setAttribute('x', `${{iconSize / 2}}`);
+            label.setAttribute('y', `${{iconSize + 16}}`);
+            label.setAttribute('font-family', 'Arial, sans-serif');
+            label.setAttribute('font-size', '12');
+            label.setAttribute('fill', '#333');
+            label.setAttribute('text-anchor', 'middle');
+            label.setAttribute('font-weight', '500');
+            label.textContent = `${{group.label}} (${{group.count}})`;
+            aggG.appendChild(label);
+
+            // Count badge
+            const badgeCircle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            badgeCircle.classList.add('aggregate-badge');
+            badgeCircle.setAttribute('cx', `${{iconSize + 8 - 8}}`);
+            badgeCircle.setAttribute('cy', '8');
+            badgeCircle.setAttribute('r', '12');
+            badgeCircle.setAttribute('fill', group.color || '#ff9900');
+            badgeCircle.setAttribute('stroke', 'white');
+            badgeCircle.setAttribute('stroke-width', '2');
+            aggG.appendChild(badgeCircle);
+
+            const badgeText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+            badgeText.classList.add('aggregate-badge');
+            badgeText.setAttribute('x', `${{iconSize + 8 - 8}}`);
+            badgeText.setAttribute('y', '12');
+            badgeText.setAttribute('font-family', 'Arial, sans-serif');
+            badgeText.setAttribute('font-size', '11');
+            badgeText.setAttribute('fill', 'white');
+            badgeText.setAttribute('text-anchor', 'middle');
+            badgeText.setAttribute('font-weight', 'bold');
+            badgeText.textContent = group.count;
+            aggG.appendChild(badgeText);
+
+            servicesLayer.appendChild(aggG);
+            aggregateNodes[serviceType] = aggG;
+
+            // Register position
+            servicePositions[`__agg_${{serviceType}}`] = {{ x: centroid.x, y: centroid.y }};
+
+            // Setup drag for aggregate node
+            aggG.addEventListener('mousedown', (e) => {{
+                // Drag is handled by the existing drag system since we add .draggable class
+                // But we also need click for popover — distinguish via a moved flag
+            }});
+
+            // Setup click for popover (using mouseup without movement)
+            let aggDragStartPos = null;
+            aggG.addEventListener('mousedown', (e) => {{
+                aggDragStartPos = {{ x: e.clientX, y: e.clientY }};
+            }});
+            aggG.addEventListener('mouseup', (e) => {{
+                if (aggDragStartPos) {{
+                    const dx = Math.abs(e.clientX - aggDragStartPos.x);
+                    const dy = Math.abs(e.clientY - aggDragStartPos.y);
+                    if (dx < 5 && dy < 5) {{
+                        // This was a click, not a drag
+                        e.stopPropagation();
+                        showAggregatePopover(serviceType, e.clientX, e.clientY);
+                    }}
+                }}
+                aggDragStartPos = null;
+            }});
+
+            // Re-route all connections (considers all aggregated groups)
+            if (!skipConnectionRecalc) {{
+                recalculateAllAggregateConnections();
+            }}
+        }}
+
+        function deaggregateGroup(serviceType) {{
+            const group = AGGREGATION_CONFIG.groups[serviceType];
+            if (!group) return;
+
+            // Close popover if open for this group
+            if (activePopover) {{
+                closeAggregatePopover();
+            }}
+
+            // Show individual nodes
+            for (const sid of group.serviceIds) {{
+                const el = document.querySelector(`[data-service-id="${{sid}}"]`);
+                if (el) el.classList.remove('agg-hidden');
+            }}
+
+            // Remove aggregate node
+            if (aggregateNodes[serviceType]) {{
+                aggregateNodes[serviceType].remove();
+                delete aggregateNodes[serviceType];
+                delete servicePositions[`__agg_${{serviceType}}`];
+            }}
+
+            // Recalculate all connections (considers remaining aggregated groups)
+            recalculateAllAggregateConnections();
+        }}
+
+        // ============ CONNECTION RE-ROUTING ============
+        // Single function that recalculates ALL aggregate connections
+        // considering ALL currently aggregated groups at once.
+        // This avoids cross-group issues where group A's aggregate connections
+        // point to individual nodes of group B that are now hidden.
+        function recalculateAllAggregateConnections() {{
+            // 1. Remove ALL existing aggregate connections
+            for (const [stype, conns] of Object.entries(aggregateConnections)) {{
+                conns.forEach(c => c.remove());
+            }}
+            for (const k of Object.keys(aggregateConnections)) delete aggregateConnections[k];
+
+            // 2. Reset hidden state on ALL original connections
+            for (const conn of originalConnections) {{
+                conn.element.classList.remove('agg-hidden');
+            }}
+
+            // 3. Build a map: serviceId -> aggregated group type (or null)
+            const idToAggGroup = {{}};
+            for (const [stype, isAgg] of Object.entries(aggregationState)) {{
+                if (!isAgg) continue;
+                const group = AGGREGATION_CONFIG.groups[stype];
+                if (!group) continue;
+                for (const sid of group.serviceIds) {{
+                    idToAggGroup[sid] = stype;
+                }}
+            }}
+
+            // 4. Process each original connection: hide and build merged map
+            // Key for merged map: "resolvedSource|resolvedTarget|connType"
+            // where resolvedSource/Target is either the original ID or __agg_<type>
+            const mergedMap = {{}};
+
+            for (const conn of originalConnections) {{
+                const srcGroup = idToAggGroup[conn.sourceId] || null;
+                const tgtGroup = idToAggGroup[conn.targetId] || null;
+
+                if (!srcGroup && !tgtGroup) {{
+                    // Neither endpoint is aggregated: leave visible
+                    continue;
+                }}
+
+                // At least one endpoint is aggregated: hide original
+                conn.element.classList.add('agg-hidden');
+
+                if (srcGroup && tgtGroup && srcGroup === tgtGroup) {{
+                    // Both in same group: hide entirely, no aggregate connection
+                    continue;
+                }}
+
+                // Resolve endpoints: use aggregate node ID if in an aggregated group
+                const resolvedSource = srcGroup ? `__agg_${{srcGroup}}` : conn.sourceId;
+                const resolvedTarget = tgtGroup ? `__agg_${{tgtGroup}}` : conn.targetId;
+
+                const key = `${{resolvedSource}}|${{resolvedTarget}}|${{conn.connType}}`;
+                if (!mergedMap[key]) {{
+                    mergedMap[key] = {{
+                        sourceId: resolvedSource,
+                        targetId: resolvedTarget,
+                        connType: conn.connType,
+                        label: conn.label,
+                        count: 0,
+                    }};
+                }}
+                mergedMap[key].count++;
+            }}
+
+            // 5. Create aggregate connections from merged map
+            const connLayer = document.getElementById('connections-layer');
+            const styles = {{
+                'data_flow': {{ color: '#3B48CC', dash: '', marker: 'url(#arrowhead-data)' }},
+                'trigger': {{ color: '#E7157B', dash: '', marker: 'url(#arrowhead-trigger)' }},
+                'encrypt': {{ color: '#6c757d', dash: '4,4', marker: 'url(#arrowhead)' }},
+                'default': {{ color: '#999999', dash: '', marker: 'url(#arrowhead)' }},
+            }};
+
+            // Group aggregate connections by which agg group they belong to (for tracking)
+            const newAggConns = {{}};
+
+            for (const [key, info] of Object.entries(mergedMap)) {{
+                const style = styles[info.connType] || styles['default'];
+
+                const sourcePos = servicePositions[info.sourceId];
+                const targetPos = servicePositions[info.targetId];
+                if (!sourcePos || !targetPos) continue;
+
+                const pathD = calcConnectionPath(sourcePos, targetPos);
+                const strokeWidth = info.count > 4 ? 3.5 : info.count > 2 ? 2.5 : 1.5;
+
+                const connG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+                connG.classList.add('connection', 'aggregate-connection');
+                connG.dataset.source = info.sourceId;
+                connG.dataset.target = info.targetId;
+                connG.dataset.sourceType = getServiceTypeById(info.sourceId) || '';
+                connG.dataset.targetType = getServiceTypeById(info.targetId) || '';
+                connG.dataset.connType = info.connType;
+                connG.dataset.label = info.label;
+                connG.dataset.multiplicity = info.count;
+
+                const hitarea = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                hitarea.classList.add('connection-hitarea');
+                hitarea.setAttribute('d', pathD);
+                hitarea.setAttribute('fill', 'none');
+                hitarea.setAttribute('stroke', 'transparent');
+                hitarea.setAttribute('stroke-width', '15');
+                connG.appendChild(hitarea);
+
+                const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                pathEl.classList.add('connection-path');
+                pathEl.setAttribute('d', pathD);
+                pathEl.setAttribute('fill', 'none');
+                pathEl.setAttribute('stroke', style.color);
+                pathEl.setAttribute('stroke-width', `${{strokeWidth}}`);
+                if (style.dash) pathEl.setAttribute('stroke-dasharray', style.dash);
+                pathEl.setAttribute('marker-end', style.marker);
+                pathEl.setAttribute('opacity', '0.7');
+                connG.appendChild(pathEl);
+
+                if (info.count > 1) {{
+                    const midX = (sourcePos.x + targetPos.x) / 2 + iconSize / 2;
+                    const midY = (sourcePos.y + targetPos.y) / 2 + iconSize / 2;
+                    const multLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    multLabel.classList.add('multiplicity-label');
+                    multLabel.setAttribute('x', `${{midX + 8}}`);
+                    multLabel.setAttribute('y', `${{midY - 5}}`);
+                    multLabel.setAttribute('font-family', 'Arial, sans-serif');
+                    multLabel.setAttribute('font-size', '10');
+                    multLabel.setAttribute('font-weight', 'bold');
+                    multLabel.setAttribute('fill', style.color);
+                    multLabel.textContent = `x${{info.count}}`;
+                    connG.appendChild(multLabel);
+                }}
+
+                connLayer.appendChild(connG);
+
+                // Track by involved agg groups for cleanup
+                const involvedGroups = new Set();
+                if (info.sourceId.startsWith('__agg_')) involvedGroups.add(info.sourceId.replace('__agg_', ''));
+                if (info.targetId.startsWith('__agg_')) involvedGroups.add(info.targetId.replace('__agg_', ''));
+                for (const g of involvedGroups) {{
+                    if (!newAggConns[g]) newAggConns[g] = [];
+                    newAggConns[g].push(connG);
+                }}
+            }}
+
+            // Update the global tracking object
+            for (const [g, conns] of Object.entries(newAggConns)) {{
+                aggregateConnections[g] = conns;
+            }}
+
+            // Re-apply connection type filter to new aggregate connections
+            applyConnTypeFilter();
+        }}
+
+        function calcConnectionPath(sourcePos, targetPos) {{
+            const halfSize = iconSize / 2;
+            let sx = sourcePos.x + halfSize;
+            let sy = sourcePos.y + halfSize;
+            let tx = targetPos.x + halfSize;
+            let ty = targetPos.y + halfSize;
+
+            if (Math.abs(ty - sy) > Math.abs(tx - sx)) {{
+                if (ty > sy) {{
+                    sy = sourcePos.y + iconSize + 8;
+                    ty = targetPos.y - 8;
+                }} else {{
+                    sy = sourcePos.y - 8;
+                    ty = targetPos.y + iconSize + 8;
+                }}
+            }} else {{
+                if (tx > sx) {{
+                    sx = sourcePos.x + iconSize + 8;
+                    tx = targetPos.x - 8;
+                }} else {{
+                    sx = sourcePos.x - 8;
+                    tx = targetPos.x + iconSize + 8;
+                }}
+            }}
+
+            const midX = (sx + tx) / 2;
+            const midY = (sy + ty) / 2;
+            return `M ${{sx}} ${{sy}} Q ${{midX}} ${{sy}}, ${{midX}} ${{midY}} T ${{tx}} ${{ty}}`;
+        }}
+
+        function getServiceTypeById(serviceId) {{
+            const el = document.querySelector(`[data-service-id="${{serviceId}}"]`);
+            return el ? (el.dataset.serviceType || '') : '';
+        }}
+
+        // ============ CHIP PANEL ============
+        function renderChipPanel() {{
+            const panel = document.getElementById('aggregation-panel');
+            const chipsContainer = document.getElementById('aggregation-chips');
+            if (!panel || !chipsContainer) return;
+
+            // Get qualifying groups sorted by count desc
+            const groups = Object.entries(AGGREGATION_CONFIG.groups)
+                .filter(([_, g]) => g.count >= AGGREGATION_CONFIG.threshold)
+                .sort((a, b) => b[1].count - a[1].count);
+
+            if (groups.length === 0) return;
+
+            panel.style.display = 'flex';
+            chipsContainer.innerHTML = '';
+
+            for (const [stype, group] of groups) {{
+                const chip = document.createElement('div');
+                chip.classList.add('aggregation-chip');
+                chip.dataset.serviceType = stype;
+                const isActive = !!aggregationState[stype];
+                chip.classList.add(isActive ? 'active' : 'inactive');
+                const color = group.color || '#666';
+                chip.style.borderColor = color;
+                chip.style.backgroundColor = isActive ? color : 'transparent';
+                chip.style.color = isActive ? 'white' : color;
+
+                chip.innerHTML = `<span class="chip-check">${{isActive ? '&#10003;' : ''}}</span>${{group.label}} (${{group.count}})`;
+
+                chip.addEventListener('click', () => toggleAggregation(stype));
+                chipsContainer.appendChild(chip);
+            }}
+        }}
+
+        function toggleAggregation(serviceType) {{
+            const wasAggregated = aggregationState[serviceType];
+            aggregationState[serviceType] = !wasAggregated;
+
+            if (aggregationState[serviceType]) {{
+                aggregateGroup(serviceType);
+            }} else {{
+                deaggregateGroup(serviceType);
+            }}
+
+            // Update chip visual
+            renderChipPanel();
+
+            // Save state
+            localStorage.setItem('diagramAggregationState', JSON.stringify(aggregationState));
+        }}
+
+        // ============ CONNECTION TYPE FILTER ============
+        function initConnectionTypeFilter() {{
+            // Load saved state or default all visible
+            const saved = localStorage.getItem('diagramConnTypeFilter');
+            let loaded = null;
+            if (saved) {{
+                try {{ loaded = JSON.parse(saved); }} catch(e) {{}}
+            }}
+            for (const ct of CONNECTION_TYPES) {{
+                connTypeFilterState[ct.id] = loaded ? (loaded[ct.id] !== false) : true;
+            }}
+            renderConnFilterPanel();
+            applyConnTypeFilter();
+        }}
+
+        function renderConnFilterPanel() {{
+            const container = document.getElementById('conn-filter-chips');
+            if (!container) return;
+            container.innerHTML = '';
+
+            for (const ct of CONNECTION_TYPES) {{
+                const chip = document.createElement('div');
+                chip.classList.add('conn-filter-chip');
+                const isActive = connTypeFilterState[ct.id] !== false;
+                chip.classList.add(isActive ? 'active' : 'inactive');
+                chip.style.borderColor = ct.color;
+                chip.style.backgroundColor = isActive ? ct.color : 'transparent';
+                chip.style.color = isActive ? 'white' : ct.color;
+                chip.innerHTML = `<span class="chip-check">${{isActive ? '&#10003;' : ''}}</span>${{ct.label}}`;
+                chip.addEventListener('click', () => toggleConnTypeFilter(ct.id));
+                container.appendChild(chip);
+            }}
+        }}
+
+        function toggleConnTypeFilter(connType) {{
+            connTypeFilterState[connType] = connTypeFilterState[connType] === false;
+            applyConnTypeFilter();
+            renderConnFilterPanel();
+            localStorage.setItem('diagramConnTypeFilter', JSON.stringify(connTypeFilterState));
+        }}
+
+        function applyConnTypeFilter() {{
+            // Apply to original connections
+            document.querySelectorAll('.connection').forEach(conn => {{
+                const ct = conn.dataset.connType || 'default';
+                if (connTypeFilterState[ct] === false) {{
+                    conn.classList.add('conn-type-hidden');
+                }} else {{
+                    conn.classList.remove('conn-type-hidden');
+                }}
+            }});
+            // Apply to aggregate connections
+            for (const conns of Object.values(aggregateConnections)) {{
+                conns.forEach(conn => {{
+                    const ct = conn.dataset.connType || 'default';
+                    if (connTypeFilterState[ct] === false) {{
+                        conn.classList.add('conn-type-hidden');
+                    }} else {{
+                        conn.classList.remove('conn-type-hidden');
+                    }}
+                }});
+            }}
+        }}
+
+        // ============ POPOVER ============
+        function showAggregatePopover(serviceType, clientX, clientY) {{
+            closeAggregatePopover();
+            clearHighlights();
+
+            const group = AGGREGATION_CONFIG.groups[serviceType];
+            if (!group) return;
+
+            const popover = document.createElement('div');
+            popover.classList.add('aggregate-popover');
+            popover.id = 'aggregate-popover';
+
+            const header = document.createElement('div');
+            header.classList.add('aggregate-popover-header');
+            header.textContent = `${{group.label}} (${{group.count}})`;
+            popover.appendChild(header);
+
+            group.serviceIds.forEach((sid, idx) => {{
+                const item = document.createElement('div');
+                item.classList.add('aggregate-popover-item');
+                item.dataset.resourceId = sid;
+
+                const iconDiv = document.createElement('div');
+                iconDiv.innerHTML = group.iconHtml || '';
+                const innerSvg = iconDiv.querySelector('svg');
+                if (innerSvg) {{
+                    innerSvg.setAttribute('width', '24');
+                    innerSvg.setAttribute('height', '24');
+                }}
+                item.appendChild(innerSvg || iconDiv);
+
+                const nameSpan = document.createElement('span');
+                nameSpan.textContent = group.serviceNames[idx] || sid;
+                item.appendChild(nameSpan);
+
+                item.addEventListener('click', (e) => {{
+                    e.stopPropagation();
+                    selectResourceInPopover(sid, serviceType, item);
+                }});
+
+                popover.appendChild(item);
+            }});
+
+            // Position popover near click
+            popover.style.left = `${{clientX + 10}}px`;
+            popover.style.top = `${{clientY + 10}}px`;
+
+            document.body.appendChild(popover);
+            activePopover = popover;
+
+            // Adjust if off-screen
+            const rect = popover.getBoundingClientRect();
+            if (rect.right > window.innerWidth) {{
+                popover.style.left = `${{clientX - rect.width - 10}}px`;
+            }}
+            if (rect.bottom > window.innerHeight) {{
+                popover.style.top = `${{clientY - rect.height - 10}}px`;
+            }}
+
+            // Close on click outside (delayed to avoid immediate close)
+            setTimeout(() => {{
+                document.addEventListener('click', closePopoverOnOutsideClick);
+            }}, 10);
+        }}
+
+        function closePopoverOnOutsideClick(e) {{
+            if (activePopover && !activePopover.contains(e.target)) {{
+                closeAggregatePopover();
+            }}
+        }}
+
+        function closeAggregatePopover() {{
+            if (activePopover) {{
+                activePopover.remove();
+                activePopover = null;
+                selectedPopoverResource = null;
+                document.removeEventListener('click', closePopoverOnOutsideClick);
+
+                // Restore aggregate connections opacity
+                document.querySelectorAll('.aggregate-connection').forEach(c => {{
+                    c.style.opacity = '';
+                }});
+                // Remove any temporary highlight connections
+                document.querySelectorAll('.popover-highlight-conn').forEach(c => c.remove());
+            }}
+        }}
+
+        function selectResourceInPopover(resourceId, serviceType, itemEl) {{
+            const group = AGGREGATION_CONFIG.groups[serviceType];
+            if (!group) return;
+            const groupIds = new Set(group.serviceIds);
+
+            // Toggle selection
+            if (selectedPopoverResource === resourceId) {{
+                // Deselect
+                selectedPopoverResource = null;
+                itemEl.classList.remove('selected');
+                // Restore ALL aggregate connections
+                for (const conns of Object.values(aggregateConnections)) {{
+                    conns.forEach(c => c.style.opacity = '');
+                }}
+                document.querySelectorAll('.popover-highlight-conn').forEach(c => c.remove());
+                return;
+            }}
+
+            // Clear previous selection
+            if (activePopover) {{
+                activePopover.querySelectorAll('.aggregate-popover-item').forEach(i => i.classList.remove('selected'));
+            }}
+            selectedPopoverResource = resourceId;
+            itemEl.classList.add('selected');
+
+            // Dim ALL aggregate connections (not just this group's)
+            for (const conns of Object.values(aggregateConnections)) {{
+                conns.forEach(c => c.style.opacity = '0.15');
+            }}
+
+            // Remove previous highlight connections
+            document.querySelectorAll('.popover-highlight-conn').forEach(c => c.remove());
+
+            // Find original connections for this specific resource and draw them from aggregate node
+            const aggNodeId = `__agg_${{serviceType}}`;
+            const aggPos = servicePositions[aggNodeId];
+            if (!aggPos) return;
+
+            const connLayer = document.getElementById('connections-layer');
+            const styles = {{
+                'data_flow': {{ color: '#3B48CC', dash: '', marker: 'url(#arrowhead-data)' }},
+                'trigger': {{ color: '#E7157B', dash: '', marker: 'url(#arrowhead-trigger)' }},
+                'encrypt': {{ color: '#6c757d', dash: '4,4', marker: 'url(#arrowhead)' }},
+                'default': {{ color: '#999999', dash: '', marker: 'url(#arrowhead)' }},
+            }};
+
+            // Build map of which IDs are in aggregated groups (for resolving targets)
+            const idToAggGroup = {{}};
+            for (const [stype, isAgg] of Object.entries(aggregationState)) {{
+                if (!isAgg || stype === serviceType) continue;
+                const g = AGGREGATION_CONFIG.groups[stype];
+                if (!g) continue;
+                for (const sid of g.serviceIds) {{
+                    idToAggGroup[sid] = stype;
+                }}
+            }}
+
+            // Collect and deduplicate highlight connections
+            const hlMerged = {{}};
+            for (const conn of originalConnections) {{
+                let externalId = null;
+                let direction = null;
+
+                if (conn.sourceId === resourceId && !groupIds.has(conn.targetId)) {{
+                    externalId = conn.targetId;
+                    direction = 'out';
+                }} else if (conn.targetId === resourceId && !groupIds.has(conn.sourceId)) {{
+                    externalId = conn.sourceId;
+                    direction = 'in';
+                }}
+
+                if (!externalId) continue;
+
+                // Resolve external ID to aggregate node if the target is in another aggregated group
+                const resolvedId = idToAggGroup[externalId] ? `__agg_${{idToAggGroup[externalId]}}` : externalId;
+                const hlSource = direction === 'out' ? aggNodeId : resolvedId;
+                const hlTarget = direction === 'out' ? resolvedId : aggNodeId;
+                const key = `${{hlSource}}|${{hlTarget}}|${{conn.connType || 'default'}}`;
+
+                if (!hlMerged[key]) {{
+                    hlMerged[key] = {{ source: hlSource, target: hlTarget, connType: conn.connType || 'default', count: 0 }};
+                }}
+                hlMerged[key].count++;
+            }}
+
+            // Draw deduplicated highlight connections
+            for (const [key, info] of Object.entries(hlMerged)) {{
+                const sourcePos = servicePositions[info.source];
+                const targetPos = servicePositions[info.target];
+                if (!sourcePos || !targetPos) continue;
+
+                const pathD = calcConnectionPath(sourcePos, targetPos);
+                const style = styles[info.connType] || styles['default'];
+                const strokeWidth = info.count > 4 ? 3.5 : info.count > 2 ? 2.5 : 2;
+
+                const connG = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+                connG.classList.add('connection', 'popover-highlight-conn');
+                connG.dataset.connType = info.connType;
+                if (connTypeFilterState[info.connType] === false) {{
+                    connG.classList.add('conn-type-hidden');
+                }}
+                connG.dataset.source = info.source;
+                connG.dataset.target = info.target;
+
+                const hitarea = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                hitarea.classList.add('connection-hitarea');
+                hitarea.setAttribute('d', pathD);
+                hitarea.setAttribute('fill', 'none');
+                hitarea.setAttribute('stroke', 'transparent');
+                hitarea.setAttribute('stroke-width', '15');
+                connG.appendChild(hitarea);
+
+                const pathEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                pathEl.classList.add('connection-path');
+                pathEl.setAttribute('d', pathD);
+                pathEl.setAttribute('fill', 'none');
+                pathEl.setAttribute('stroke', style.color);
+                pathEl.setAttribute('stroke-width', `${{strokeWidth}}`);
+                if (style.dash) pathEl.setAttribute('stroke-dasharray', style.dash);
+                pathEl.setAttribute('marker-end', style.marker);
+                pathEl.setAttribute('opacity', '1');
+                connG.appendChild(pathEl);
+
+                if (info.count > 1) {{
+                    const midX = (sourcePos.x + targetPos.x) / 2 + iconSize / 2;
+                    const midY = (sourcePos.y + targetPos.y) / 2 + iconSize / 2;
+                    const multLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                    multLabel.classList.add('multiplicity-label');
+                    multLabel.setAttribute('x', `${{midX + 8}}`);
+                    multLabel.setAttribute('y', `${{midY - 5}}`);
+                    multLabel.setAttribute('font-family', 'Arial, sans-serif');
+                    multLabel.setAttribute('font-size', '10');
+                    multLabel.setAttribute('font-weight', 'bold');
+                    multLabel.setAttribute('fill', style.color);
+                    multLabel.textContent = `x${{info.count}}`;
+                    connG.appendChild(multLabel);
+                }}
+
+                connLayer.appendChild(connG);
+            }}
+        }}
+
+        // ============ AGGREGATION-AWARE DRAG ============
+        // Override updateConnectionsFor to also handle aggregate connections
+        updateConnectionsFor = function(serviceId) {{
+            // Update original connections
+            _baseUpdateConnectionsFor(serviceId);
+
+            // Update aggregate connections involving this serviceId
+            document.querySelectorAll(`.aggregate-connection[data-source="${{serviceId}}"], .aggregate-connection[data-target="${{serviceId}}"]`).forEach(conn => {{
+                updateConnection(conn);
+            }});
+
+            // Also update popover highlight connections
+            document.querySelectorAll(`.popover-highlight-conn`).forEach(conn => {{
+                const sId = conn.dataset.source;
+                const tId = conn.dataset.target;
+                if (sId === serviceId || tId === serviceId) {{
+                    const sPos = servicePositions[sId];
+                    const tPos = servicePositions[tId];
+                    if (sPos && tPos) {{
+                        const pathD = calcConnectionPath(sPos, tPos);
+                        const pathEl = conn.querySelector('.connection-path');
+                        const hitEl = conn.querySelector('.connection-hitarea');
+                        if (pathEl) pathEl.setAttribute('d', pathD);
+                        if (hitEl) hitEl.setAttribute('d', pathD);
+                        // Update multiplicity label position
+                        const multLabel = conn.querySelector('.multiplicity-label');
+                        if (multLabel) {{
+                            const midX = (sPos.x + tPos.x) / 2 + iconSize / 2;
+                            const midY = (sPos.y + tPos.y) / 2 + iconSize / 2;
+                            multLabel.setAttribute('x', `${{midX + 8}}`);
+                            multLabel.setAttribute('y', `${{midY - 5}}`);
+                        }}
+                    }}
+                }}
+            }});
+        }};
+
+        // ============ PERSISTENCE INTEGRATION ============
+        // Override save/load/reset to include aggregation state
+
+        savePositions = function() {{
+            // Save positions (including aggregate node positions)
+            const data = JSON.stringify(servicePositions);
+            localStorage.setItem('diagramPositions', data);
+            // Save aggregation state
+            localStorage.setItem('diagramAggregationState', JSON.stringify(aggregationState));
+            // Save connection type filter state
+            localStorage.setItem('diagramConnTypeFilter', JSON.stringify(connTypeFilterState));
+            alert('Layout and aggregation state saved!');
+        }};
+
+        loadPositions = function() {{
+            const data = localStorage.getItem('diagramPositions');
+            if (!data) {{
+                alert('No saved layout found.');
+                return;
+            }}
+
+            const saved = JSON.parse(data);
+            Object.keys(saved).forEach(id => {{
+                if (servicePositions[id] !== undefined) {{
+                    servicePositions[id] = saved[id];
+                    const el = document.querySelector(`[data-service-id="${{id}}"]`);
+                    if (el) {{
+                        el.setAttribute('transform', `translate(${{saved[id].x}}, ${{saved[id].y}})`);
+                    }}
+                }}
+            }});
+
+            // Load aggregation state
+            const aggData = localStorage.getItem('diagramAggregationState');
+            if (aggData) {{
+                try {{
+                    const savedAgg = JSON.parse(aggData);
+                    for (const [stype, isAgg] of Object.entries(savedAgg)) {{
+                        if (aggregationState[stype] !== undefined && aggregationState[stype] !== isAgg) {{
+                            toggleAggregation(stype);
+                        }}
+                    }}
+                }} catch(e) {{}}
+            }}
+
+            // Load connection type filter state
+            const ctData = localStorage.getItem('diagramConnTypeFilter');
+            if (ctData) {{
+                try {{
+                    const savedCt = JSON.parse(ctData);
+                    for (const ct of CONNECTION_TYPES) {{
+                        if (savedCt[ct.id] !== undefined) {{
+                            connTypeFilterState[ct.id] = savedCt[ct.id];
+                        }}
+                    }}
+                    renderConnFilterPanel();
+                    applyConnTypeFilter();
+                }} catch(e) {{}}
+            }}
+
+            updateAllConnections();
+            alert('Layout loaded!');
+        }};
+
+        resetPositions = function() {{
+            // Reset individual node positions
+            Object.keys(originalPositions).forEach(id => {{
+                servicePositions[id] = {{ ...originalPositions[id] }};
+                const el = document.querySelector(`[data-service-id="${{id}}"]`);
+                if (el) {{
+                    el.setAttribute('transform', `translate(${{originalPositions[id].x}}, ${{originalPositions[id].y}})`);
+                }}
+            }});
+
+            // Reset aggregation to defaults
+            for (const [stype, group] of Object.entries(AGGREGATION_CONFIG.groups)) {{
+                if (group.count >= AGGREGATION_CONFIG.threshold) {{
+                    const shouldAgg = group.defaultAggregated;
+                    if (aggregationState[stype] !== shouldAgg) {{
+                        aggregationState[stype] = shouldAgg;
+                        if (shouldAgg) {{
+                            aggregateGroup(stype);
+                        }} else {{
+                            deaggregateGroup(stype);
+                        }}
+                    }} else if (shouldAgg && aggregateNodes[stype]) {{
+                        // Recalculate centroid with reset positions
+                        const centroid = computeCentroid(stype);
+                        servicePositions[`__agg_${{stype}}`] = centroid;
+                        aggregateNodes[stype].setAttribute('transform', `translate(${{centroid.x}}, ${{centroid.y}})`);
+                    }}
+                }}
+            }}
+
+            renderChipPanel();
+            updateAllConnections();
+            // Also update aggregate connections
+            for (const [stype, conns] of Object.entries(aggregateConnections)) {{
+                conns.forEach(c => updateConnection(c));
+            }}
+
+            localStorage.removeItem('diagramAggregationState');
+
+            // Reset connection type filter to all visible
+            for (const ct of CONNECTION_TYPES) {{
+                connTypeFilterState[ct.id] = true;
+            }}
+            renderConnFilterPanel();
+            applyConnTypeFilter();
+            localStorage.removeItem('diagramConnTypeFilter');
+        }};
     </script>
 </body>
 </html>"""
@@ -1554,6 +2706,36 @@ class HTMLRenderer:
 
         total_resources = sum(len(s.resources) for s in aggregated.services)
 
+        # Build aggregation config for client-side JS
+        agg_metadata = ResourceAggregator.get_aggregation_metadata(aggregated)
+        # Add icon SVG HTML for each service type so JS can render aggregate nodes
+        agg_config: Dict[str, Any] = {"threshold": 3, "groups": {}}
+        for stype, info in agg_metadata.items():
+            icon_svg = self.svg_renderer.icon_mapper.get_icon_svg(
+                info["icon_resource_type"], 48
+            )
+            icon_html = ""
+            if icon_svg:
+                icon_content = self.svg_renderer._extract_svg_content(icon_svg)
+                icon_viewbox = self.svg_renderer._extract_svg_viewbox(icon_svg)
+                if icon_content:
+                    icon_html = (
+                        f'<svg width="48" height="48" viewBox="{icon_viewbox}">'
+                        f"{icon_content}</svg>"
+                    )
+            color = self.svg_renderer.icon_mapper.get_category_color(
+                info["icon_resource_type"]
+            )
+            agg_config["groups"][stype] = {
+                "count": info["count"],
+                "label": info["label"],
+                "defaultAggregated": info["defaultAggregated"],
+                "iconHtml": icon_html,
+                "color": color,
+                "serviceIds": info["service_ids"],
+                "serviceNames": info["service_names"],
+            }
+
         html_content = self.HTML_TEMPLATE.format(
             svg_content=svg_content,
             service_count=len(aggregated.services),
@@ -1561,6 +2743,7 @@ class HTMLRenderer:
             connection_count=len(aggregated.connections),
             environment=environment,
             icon_size=self.svg_renderer.config.icon_size,
+            aggregation_config_json=json.dumps(agg_config),
         )
 
         return html_content
